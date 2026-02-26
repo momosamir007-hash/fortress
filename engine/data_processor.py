@@ -3,7 +3,7 @@ import numpy as np
 
 class DataProcessor:
     def __init__(self):
-        # الكود الجديد: جلب كل المواسم من 1993 حتى 2026 آلياً
+        # توليد كل المواسم من 1993 حتى 2026 آلياً
         self.seasons = []
         for year in range(1993, 2026):
             start_yr = str(year)[-2:].zfill(2)
@@ -25,7 +25,7 @@ class DataProcessor:
                     df.rename(columns={'HomeTeam': 'team1', 'AwayTeam': 'team2', 'FTHG': 'goals1', 'FTAG': 'goals2'}, inplace=True)
                     dfs.append(df)
                 except Exception:
-                    pass # تجاهل الروابط في حال عدم توفر الموسم بعد
+                    pass
         
         if not dfs:
             raise ValueError("لم يتم جلب أي بيانات! يرجى التحقق من الاتصال بالإنترنت.")
@@ -44,10 +44,8 @@ class DataProcessor:
             t1, t2 = row['team1'], row['team2']
             g1, g2 = int(row['goals1']), int(row['goals2'])
             
-            # النتيجة: 2 = فوز الأرض، 1 = تعادل، 0 = فوز الضيف
             result = 2 if g1 > g2 else (1 if g1 == g2 else 0)
             
-            # المواجهات المباشرة H2H
             pair = tuple(sorted([t1, t2]))
             if pair not in h2h_stats:
                 h2h_stats[pair] = {'t1_wins': 0, 't2_wins': 0, 'draws': 0}
@@ -63,10 +61,11 @@ class DataProcessor:
                 'a_def': team_stats.get(t2, {'def': 1.0})['def'],
                 'a_pts': team_stats.get(t2, {'pts': 1.0})['pts'],
                 'h2h_adv': h2h_t1_adv,
-                'result': result
+                'result': result,
+                'h_goals': g1,  # حفظ أهداف الأرض
+                'a_goals': g2   # حفظ أهداف الضيف
             })
             
-            # المتوسط المتحرك (EMA)
             alpha = 0.3 
             for t in [t1, t2]:
                 if t not in team_stats: team_stats[t] = {'atk': 1.0, 'def': 1.0, 'pts': 1.0}
