@@ -4,7 +4,7 @@ import time
 from engine.data_processor import DataProcessor
 from engine.ml_model import FortressML
 from engine.llm_expert import OracleLLM
-from engine.odds_fetcher import OddsFetcher  # <--- استيراد كاشف القيمة الجديد
+from engine.odds_fetcher import OddsFetcher 
 
 st.set_page_config(page_title="المحرك الحصين V13", page_icon="🏰", layout="wide")
 
@@ -22,7 +22,7 @@ def load_and_train_engine():
     return dp, ml, teams, match_count, features_df
 
 st.title("🏰 المحرك الحصين V13.0")
-st.markdown("نظام التوقع الهجين (XGBoost + Groq LLM + الحوسبة السحابية + كاشف القيمة)")
+st.markdown("نظام التوقع الهجين (XGBoost + Groq LLM + الحوسبة السحابية + كاشف القيمة الآمن)")
 st.markdown("---")
 
 try:
@@ -33,8 +33,15 @@ except Exception as e:
     st.error(f"خطأ في تحميل البيانات: {e}")
     st.stop()
 
+# --- إعدادات الذكاء الاصطناعي ---
 st.sidebar.header("⚙️ إعدادات الذكاء الاصطناعي")
 confidence_threshold = st.sidebar.slider("عتبة التدخل للـ LLM (الفرق %)", 5, 30, 15)
+
+# --- إعدادات الأمان والاستثمار الجديدة ---
+st.sidebar.markdown("---")
+st.sidebar.header("💰 إعدادات الاستثمار (إدارة المخاطر)")
+st.sidebar.info("حدد نسبة الأمان: الرادار سيتجاهل أي فريق نسبة فوزه في الآلة أقل من هذا الرقم، حتى لو كان مربحاً.")
+min_win_prob = st.sidebar.slider("الحد الأدنى لنسبة الفوز المقبولة (%)", 10, 80, 40) / 100.0
 
 tab1, tab2 = st.tabs(["🔮 التوقع المباشر (مباراة بمباراة)", "📈 الفحص الرجعي (Backtest)"])
 
@@ -66,7 +73,6 @@ with tab1:
             
             st.markdown("---")
             
-            # --- قرار الفرصة المزدوجة الأساسي ---
             if diff < confidence_threshold:
                 st.info(f"⚠️ المباراة معقدة (فارق الاحتمالات {diff:.1f}%). جاري استدعاء Groq كحكم مساعد...")
                 try:
@@ -89,7 +95,7 @@ with tab1:
             st.markdown(f"### 🎯 التوقع النهائي (فرصة مزدوجة): **{final_decision}**")
             st.caption(source)
 
-            # --- قسم النتيجة الدقيقة (xG + LLM) ---
+            # --- قسم النتيجة الدقيقة ---
             st.divider()
             st.subheader("🎯 التوقع الجريء (النتيجة الدقيقة)")
             
@@ -105,39 +111,42 @@ with tab1:
                 except Exception as e:
                     st.warning(f"تعذر حساب النتيجة الدقيقة حالياً. ({e})")
 
-            # --- قسم كاشف القيمة الاستثمارية (Value Bet) ---
+            # --- قسم كاشف القيمة الآمن (Value Bet) ---
             st.divider()
-            st.subheader("💰 كاشف القيمة الاستثمارية (Value Bet Detector)")
+            st.subheader("💰 كاشف القيمة الاستثمارية (إدارة المخاطر النشطة)")
             
-            with st.spinner("جاري سحب الكوتا الحية من The-Odds-API ومقارنتها بالخوارزمية..."):
+            with st.spinner("جاري سحب الكوتا الحية وفحص مستويات الأمان..."):
                 try:
                     fetcher = OddsFetcher()
                     odds_data, bookie_name = fetcher.get_odds(home_team, away_team)
                     
                     if odds_data:
                         st.info(f"🏦 **الشركة المرجعية:** {bookie_name}\n\n"
-                                f"📊 **الكوتا الحية:** 🏠 فوز الأرض ({odds_data['home']}) | 🤝 تعادل ({odds_data['draw']}) | ✈️ فوز الضيف ({odds_data['away']})")
+                                f"📊 **الكوتا الحية:** 🏠 {home_team} ({odds_data['home']}) | 🤝 تعادل ({odds_data['draw']}) | ✈️ {away_team} ({odds_data['away']})")
                         
-                        # حساب القيمة المتوقعة EV لكل خيار
                         ev_home = (probs[2] * odds_data['home']) - 1
                         ev_draw = (probs[1] * odds_data['draw']) - 1
                         ev_away = (probs[0] * odds_data['away']) - 1
                         
                         best_ev = max(ev_home, ev_draw, ev_away)
                         
-                        # نطلب نسبة أمان 5% كحد أدنى للقيمة الاستثمارية
                         if best_ev > 0.05: 
-                            if best_ev == ev_home: bet_target, odds_val = f"فوز {home_team}", odds_data['home']
-                            elif best_ev == ev_draw: bet_target, odds_val = "التعادل", odds_data['draw']
-                            else: bet_target, odds_val = f"فوز {away_team}", odds_data['away']
+                            if best_ev == ev_home: bet_target, odds_val, machine_prob = f"فوز {home_team}", odds_data['home'], probs[2]
+                            elif best_ev == ev_draw: bet_target, odds_val, machine_prob = "التعادل", odds_data['draw'], probs[1]
+                            else: bet_target, odds_val, machine_prob = f"فوز {away_team}", odds_data['away'], probs[0]
                             
-                            st.success(f"🔥 **فرصة ذهبية (Value Bet)!**\n\n"
-                                       f"الخوارزمية كشفت ثغرة وتنصحك بالرهان على: **{bet_target}**.\n\n"
-                                       f"الشركة تمنح كوتا ({odds_val})، بينما الاحتمالية الحقيقية للآلة أعلى بكثير. العائد المتوقع (EV) هو: **+{best_ev*100:.1f}%**")
+                            # تطبيق شرط الأمان الذي حدده المستخدم في الشريط الجانبي
+                            if machine_prob >= min_win_prob:
+                                st.success(f"🔥 **فرصة استثمارية آمنة (Value Bet)!**\n\n"
+                                           f"الخوارزمية تنصحك بالرهان على: **{bet_target}**.\n\n"
+                                           f"فرصة الفريق قوية ({machine_prob*100:.1f}%)، والشركة تمنح كوتا سخية ({odds_val}). العائد المتوقع: **+{best_ev*100:.1f}%**")
+                            else:
+                                st.warning(f"🛡️ **تم حجب مخاطرة عالية لحمايتك!**\n\n"
+                                           f"يوجد فجوة رياضية في الرهان على **{bet_target}** بكوتا ({odds_val}). لكن بما أن فرصة حدوث ذلك ضعيفة ({machine_prob*100:.1f}%) وهي أقل من حد الأمان الذي طلبته ({min_win_prob*100:.0f}%)، فقد تم تجاهل هذه الفرصة.")
                         else:
                             st.warning("⚠️ **فخ رياضي! (لا توجد قيمة)**\n\n"
                                        "الشركات خفضت الكوتا لهذه المباراة بشكل مبالغ فيه ليضمنوا ربحهم. "
-                                       "الخوارزمية تنصحك بـ **تجنب الرهان** لأن العائد لا يبرر المخاطرة.")
+                                       "الخوارزمية تنصحك بـ **تجنب الرهان تماماً**.")
                     else:
                         st.warning(f"تعذر جلب الكوتا الحية لهذه المباراة: {bookie_name}")
                 except Exception as e:
@@ -148,8 +157,6 @@ with tab1:
 # ==========================================
 with tab2:
     st.subheader("اختبار دقة النموذج على المواسم الماضية")
-    st.info("في هذا الاختبار، سنقوم باقتطاع المواسم الأخيرة وإخفائها عن النموذج. سيتدرب النموذج على الماضي السحيق فقط، ثم نختبره على المواسم المخفية لنرى مدى دقته الحقيقية في توقع مباريات لم يرها قط.")
-    
     seasons_to_hide = st.slider("كم موسماً تريد إخفاءه واختبار النموذج عليه؟", min_value=1, max_value=10, value=5)
     matches_per_season = 932 
     
@@ -177,58 +184,15 @@ with tab2:
                 
                 correct = sum([1 for i in range(len(y_test)) if y_test[i] in top2_indices[i]])
                 accuracy = (correct / len(y_test)) * 100
-                
                 end_time = time.time()
                 
                 st.markdown("### 📊 نتائج الاختبار الرجعي (Backtest Results)")
-                
                 col_res1, col_res2, col_res3 = st.columns(3)
                 col_res1.metric("مباريات التدريب (الماضي)", f"{len(train_df)}")
                 col_res2.metric("مباريات الاختبار (المستقبل)", f"{len(test_df)}")
                 col_res3.metric("الوقت المستغرق", f"{(end_time - start_time):.2f} ثانية")
                 
                 st.divider()
-                
                 col_acc1, col_acc2 = st.columns(2)
                 col_acc1.metric("✅ التوقعات الصحيحة (فرصة مزدوجة)", f"{correct} من {len(test_df)}")
                 col_acc2.metric("🎯 نسبة الدقة الحقيقية", f"{accuracy:.2f}%")
-                
-                if accuracy > 70:
-                    st.balloons()
-                    st.success("🔥 دقة استثنائية! المحرك أثبت صلابته الإحصائية على المدى الطويل.")
-                elif accuracy > 60:
-                    st.info("👍 دقة جيدة جداً، النموذج يحقق أرباحاً إحصائية في نظام الفرصة المزدوجة.")
-                else:
-                    st.warning("⚠️ النموذج يحتاج إلى بيانات أو ميزات إضافية لرفع الدقة.")
-
-                X_test = test_df[['h_atk', 'h_def', 'h_pts', 'a_atk', 'a_def', 'a_pts', 'h2h_adv']]
-                y_test = test_df['result'].values
-                
-                probs = backtest_ml.model.predict_proba(X_test)
-                top2_indices = np.argsort(probs, axis=1)[:, -2:]
-                
-                correct = sum([1 for i in range(len(y_test)) if y_test[i] in top2_indices[i]])
-                accuracy = (correct / len(y_test)) * 100
-                
-                end_time = time.time()
-                
-                st.markdown("### 📊 نتائج الاختبار الرجعي (Backtest Results)")
-                
-                col_res1, col_res2, col_res3 = st.columns(3)
-                col_res1.metric("مباريات التدريب (الماضي)", f"{len(train_df)}")
-                col_res2.metric("مباريات الاختبار (المستقبل)", f"{len(test_df)}")
-                col_res3.metric("الوقت المستغرق", f"{(end_time - start_time):.2f} ثانية")
-                
-                st.divider()
-                
-                col_acc1, col_acc2 = st.columns(2)
-                col_acc1.metric("✅ التوقعات الصحيحة (فرصة مزدوجة)", f"{correct} من {len(test_df)}")
-                col_acc2.metric("🎯 نسبة الدقة الحقيقية", f"{accuracy:.2f}%")
-                
-                if accuracy > 70:
-                    st.balloons()
-                    st.success("🔥 دقة استثنائية! المحرك أثبت صلابته الإحصائية على المدى الطويل.")
-                elif accuracy > 60:
-                    st.info("👍 دقة جيدة جداً، النموذج يحقق أرباحاً إحصائية في نظام الفرصة المزدوجة.")
-                else:
-                    st.warning("⚠️ النموذج يحتاج إلى بيانات أو ميزات إضافية لرفع الدقة.")
