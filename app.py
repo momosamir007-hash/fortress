@@ -9,7 +9,7 @@ st.set_page_config(page_title="المحرك الحصين V13", page_icon="🏰",
 @st.cache_resource
 def load_and_train_engine():
     dp = DataProcessor()
-    raw_df = dp.fetch_github_data()
+    raw_df = dp.fetch_data()
     features_df = dp.extract_features(raw_df)
     
     ml = FortressML()
