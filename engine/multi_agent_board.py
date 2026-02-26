@@ -72,58 +72,112 @@ class MultiAgentBoard:
 
     def run_board_meeting(self, home_team, away_team, h_xg, a_xg, probs, odds_data):
 
-        context = (
-            f"مباراة {home_team} ضد {away_team}. "
-            f"الاحتمالات: أرض {probs[2]*100:.1f}%، تعادل {probs[1]*100:.1f}%، ضيف {probs[0]*100:.1f}%. "
-            f"xG: {h_xg:.2f}-{a_xg:.2f}. الكوتا: {odds_data}"
+    context = (
+        f"المباراة: {home_team} ضد {away_team}. "
+        f"نسب الفوز: أرض {probs[2]*100:.1f}% | تعادل {probs[1]*100:.1f}% | ضيف {probs[0]*100:.1f}%. "
+        f"xG: {h_xg:.2f} مقابل {a_xg:.2f}. الكوتا: {odds_data}"
+    )
+
+    # ---------- ROUND 1: OPINIONS ---------- #
+
+    experts = [
+        (
+        """أنت محلل إحصائي في مناظرة تلفزيونية.
+قدم رأيك بالتفصيل:
+
+- ماذا تقول الأرقام؟
+- ماذا تعني xG؟
+- من الأقرب للفوز رقمياً ولماذا؟
+
+اكتب بأسلوب نقاشي واضح.""",
+        context,
+        "llama3.1-8b"
+        ),
+
+        (
+        """أنت محلل تكتيكي عالمي في مناظرة.
+قدم تحليلك التكتيكي بالتفصيل:
+
+- كيف ستسير المباراة داخل الملعب؟
+- نقاط القوة والضعف
+- تأثير الأرض والجمهور
+- السيناريو الأقرب
+
+اكتب بأسلوب نقاشي واضح.""",
+        context,
+        "qwen-3-235b-a22b-instruct-2507"
+        ),
+
+        (
+        """أنت خبير مراهنات في مناظرة.
+قدم رأيك المالي:
+
+- هل توجد قيمة مراهنة؟
+- مستوى المخاطرة
+- أفضل خيار منطقي
+
+اكتب بأسلوب نقاشي.""",
+        context,
+        "llama3.1-8b"
         )
+    ]
 
-        experts = [
-            ("أنت محلل إحصائي. لخص في سطرين.", context, "llama3.1-8b"),
-            ("أنت محلل تكتيكي. لخص في سطرين.", context, "qwen-3-235b-a22b-instruct-2507"),
-            ("أنت مستشار مالي للمراهنات. لخص في سطرين.", context, "llama3.1-8b")
-        ]
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [executor.submit(self.ask_cerebras_expert, e[0], e[1], e[2]) for e in experts]
+        results = [f.result() for f in futures]
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [
-                executor.submit(self.ask_cerebras_expert, e[0], e[1], e[2])
-                for e in experts
-            ]
-            results = [f.result() for f in futures]
+    stat, tactic, finance = results
 
-        s_rep, t_rep, v_rep = results
+    # ---------- ROUND 2: DEBATE ---------- #
 
-        # ---------- MANAGER DECISION ---------- #
+    debate_prompt = f"""
+نحن في مناظرة بين ثلاثة خبراء.
 
-        if not self.groq_client:
-            return s_rep, t_rep, v_rep, "⚠️ مفتاح Groq غير موجود."
+رأي الإحصائي:
+{stat}
 
-        manager_prompt = f"""
-اتخذ قرارك النهائي:
+رأي التكتيكي:
+{tactic}
 
-إحصائي:
-{s_rep}
+رأي المالي:
+{finance}
 
-تكتيكي:
-{t_rep}
+اكتب مناظرة حقيقية حيث:
+- كل خبير يعلق على رأي الآخرين
+- يوضح أين يتفق وأين يختلف
+- يشرح لماذا يعتقد أن رأيه أقوى
 
-مالي:
-{v_rep}
-
-أجب فقط:
-النتيجة: X-Y
-التوقع المزدوج:
-الخلاصة:
+اكتب الحوار بأسلوب نقاشي واضح مع عناوين لكل خبير.
 """
 
-        try:
-            decision = self.groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": manager_prompt}],
-                temperature=0.1
-            ).choices[0].message.content
+    debate_text = self.ask_cerebras_expert(
+        "أنت مخرج برنامج رياضي يكتب نص مناظرة واقعية.",
+        debate_prompt,
+        "qwen-3-235b-a22b-instruct-2507"
+    )
 
-        except Exception:
-            decision = "❌ فشل المدير في التحليل."
+    # ---------- FINAL DECISION ---------- #
 
-        return s_rep, t_rep, v_rep, decision
+    manager_prompt = f"""
+بصفتك مدير النقاش، لخص نتيجة المناظرة التالية:
+
+{debate_text}
+
+وأعط القرار النهائي:
+
+- النتيجة المتوقعة
+- الخيار الآمن
+- مستوى الثقة
+- لماذا هذا القرار هو خلاصة المناظرة
+"""
+
+    try:
+        decision = self.groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": manager_prompt}],
+            temperature=0.1
+        ).choices[0].message.content
+    except:
+        decision = "فشل المدير في اتخاذ القرار."
+
+    return stat, tactic, finance, debate_text, decision
