@@ -6,27 +6,24 @@ class OracleLLM:
     def __init__(self, provider="groq"):
         self.provider = provider
         if provider == "groq":
-            # محاولة جلب المفتاح من أسرار Streamlit السحابية أولاً
+            # محاولة قراءة المفتاح من خزنة Streamlit بأمان
             try:
                 key = st.secrets["GROQ_API_KEY"]
             except Exception:
-                # إذا لم يجده، يحاول جلبه من البيئة المحلية
+                # كبديل: محاولة قراءته من بيئة التشغيل
                 key = os.getenv("GROQ_API_KEY")
                 
             if not key or key == "ضع_مفتاح_groq_هنا": 
-                raise ValueError("لم يتم العثور على مفتاح Groq في إعدادات Secrets")
+                raise ValueError("مفتاح Groq غير موجود في إعدادات Secrets!")
             
             self.client = Groq(api_key=key)
-            # استخدام موديل Llama 3 السريع
             self.model_name = "llama3-8b-8192"
 
     def get_double_chance(self, h_team, a_team, probs):
         prompt = f'''
         أنت خبير تحليل بيانات رياضية.
-        المباراة: {h_team} (الأرض) ضد {a_team} (الضيف).
-        احتمالات الإحصاء: 
-        أرض: {probs[2]*100:.1f}% | تعادل: {probs[1]*100:.1f}% | ضيف: {probs[0]*100:.1f}%
-        
+        المباراة: {h_team} ضد {a_team}.
+        احتمالات فوز الأرض: {probs[2]*100:.1f}%, تعادل: {probs[1]*100:.1f}%, فوز الضيف: {probs[0]*100:.1f}%
         اختر التوقع المزدوج الأكثر أماناً.
         أجب فقط بواحدة من هذه العبارات ولا شيء غيرها:
         (الأرض أو تعادل)
@@ -45,5 +42,5 @@ class OracleLLM:
             elif "الضيف أو تعادل" in ans: return "الضيف أو تعادل"
             else: return "أرض أو ضيف"
         except Exception as e:
-            # إرجاع رسالة الخطأ الحقيقية بدلاً من رسالة مبهمة
-            return f"خطأ التفاصيل: {str(e)}"
+            # هنا التعديل الأهم: إرجاع رسالة الخطأ الأصلية من سيرفر Groq
+            return f"تفاصيل الخطأ: {str(e)}"
