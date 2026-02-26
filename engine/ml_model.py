@@ -9,7 +9,7 @@ class FortressML:
             subsample=0.8,
             colsample_bytree=0.8,
             tree_method='hist',
-            device='cuda',
+            device='cpu',
             random_state=42
         )
         self.is_trained = False
