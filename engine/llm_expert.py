@@ -1,17 +1,23 @@
 import os
+import streamlit as st
 from groq import Groq
-from dotenv import load_dotenv
-
-load_dotenv()
 
 class OracleLLM:
     def __init__(self, provider="groq"):
         self.provider = provider
         if provider == "groq":
-            key = os.getenv("GROQ_API_KEY")
+            # محاولة جلب المفتاح من أسرار Streamlit السحابية أولاً
+            try:
+                key = st.secrets["GROQ_API_KEY"]
+            except Exception:
+                # إذا لم يجده، يحاول جلبه من البيئة المحلية
+                key = os.getenv("GROQ_API_KEY")
+                
             if not key or key == "ضع_مفتاح_groq_هنا": 
-                raise ValueError("يرجى وضع مفتاح Groq في ملف .env")
+                raise ValueError("لم يتم العثور على مفتاح Groq في إعدادات Secrets")
+            
             self.client = Groq(api_key=key)
+            # استخدام موديل Llama 3 السريع
             self.model_name = "llama3-8b-8192"
 
     def get_double_chance(self, h_team, a_team, probs):
@@ -39,4 +45,5 @@ class OracleLLM:
             elif "الضيف أو تعادل" in ans: return "الضيف أو تعادل"
             else: return "أرض أو ضيف"
         except Exception as e:
-            return f"خطأ API"
+            # إرجاع رسالة الخطأ الحقيقية بدلاً من رسالة مبهمة
+            return f"خطأ التفاصيل: {str(e)}"
