@@ -1,55 +1,38 @@
 import pandas as pd
 import numpy as np
-import re
-import requests
 
 class DataProcessor:
     def __init__(self):
-        self.seasons = ["2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24", "2024-25"]
-        # سحب بيانات البريميرليج والشامبيونشيب معاً لرفع دقة التدريب
-        self.url_templates = [
-            "https://raw.githubusercontent.com/openfootball/england/master/{}/1-premierleague.txt",
-            "https://raw.githubusercontent.com/openfootball/england/master/{}/2-championship.txt"
-        ]
-        
-    def clean_team_name(self, name):
-        if not name or pd.isna(name): return "Unknown"
-        s = str(name).strip()
-        s = re.sub(r'\(.*?\)', '', s)
-        s = re.sub(r'[^a-zA-Z\s]', '', s)
-        return s.strip()
+        # المواسم (مثال: 2425 تعني 2024-2025)
+        self.seasons = ["1920", "2021", "2122", "2223", "2324", "2425"]
+        # E0 = الدوري الإنجليزي الممتاز | E1 = الشامبيونشيب
+        self.leagues = ["E0", "E1"]
+        self.base_url = "https://www.football-data.co.uk/mmz4281/{}/{}.csv"
 
-    def fetch_github_data(self):
-        matches = []
+    def fetch_data(self):
+        dfs = []
         for season in self.seasons:
-            for template in self.url_templates:
-                url = template.format(season)
+            for league in self.leagues:
+                url = self.base_url.format(season, league)
                 try:
-                    response = requests.get(url, timeout=15)
-                    if response.status_code == 200:
-                        lines = response.text.split('\n')
-                        for line in lines:
-                            line = line.strip()
-                            if not line or line.startswith('#') or line.startswith('[') or line.startswith('Matchday') or line.startswith('Round'):
-                                continue
-                            
-                            match_score = re.search(r'\b(\d+)\s*-\s*(\d+)\b', line)
-                            if match_score:
-                                team1_raw = line[:match_score.start()].split('(')[0].strip()
-                                team2_raw = line[match_score.end():].split('(')[0].strip()
-                                
-                                matches.append({
-                                    'team1': self.clean_team_name(team1_raw),
-                                    'team2': self.clean_team_name(team2_raw),
-                                    'goals1': int(match_score.group(1)),
-                                    'goals2': int(match_score.group(2))
-                                })
-                except Exception as e:
-                    pass # تجاهل الأخطاء الصامتة لتسريع الجلب
-                
-        if not matches:
-            raise ValueError("لم يتم جلب أي بيانات! يرجى التحقق من اتصال الإنترنت.")
-        return pd.DataFrame(matches)
+                    # قراءة ملف CSV مباشرة من الإنترنت بضغطة زر
+                    df = pd.read_csv(url, on_bad_lines='skip')
+                    # أخذ الأعمدة المهمة فقط (الفرق والأهداف) وحذف الأسطر الفارغة
+                    df = df[['HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']].dropna()
+                    # إعادة تسمية الأعمدة لتتوافق مع محرك XGBoost الخاص بنا
+                    df.rename(columns={'HomeTeam': 'team1', 'AwayTeam': 'team2', 'FTHG': 'goals1', 'FTAG': 'goals2'}, inplace=True)
+                    dfs.append(df)
+                except Exception:
+                    pass # تجاهل الروابط في حال عدم توفر الموسم بعد
+        
+        if not dfs:
+            raise ValueError("لم يتم جلب أي بيانات! يرجى التحقق من الاتصال بالإنترنت.")
+            
+        raw_df = pd.concat(dfs, ignore_index=True)
+        # تنظيف الأسماء من أي مسافات فارغة لضمان عدم تكرار الفرق
+        raw_df['team1'] = raw_df['team1'].astype(str).str.strip()
+        raw_df['team2'] = raw_df['team2'].astype(str).str.strip()
+        return raw_df
 
     def extract_features(self, df):
         team_stats = {}
@@ -60,8 +43,10 @@ class DataProcessor:
             t1, t2 = row['team1'], row['team2']
             g1, g2 = int(row['goals1']), int(row['goals2'])
             
+            # النتيجة: 2 = فوز الأرض، 1 = تعادل، 0 = فوز الضيف
             result = 2 if g1 > g2 else (1 if g1 == g2 else 0)
             
+            # المواجهات المباشرة H2H
             pair = tuple(sorted([t1, t2]))
             if pair not in h2h_stats:
                 h2h_stats[pair] = {'t1_wins': 0, 't2_wins': 0, 'draws': 0}
@@ -80,6 +65,7 @@ class DataProcessor:
                 'result': result
             })
             
+            # المتوسط المتحرك (EMA)
             alpha = 0.3 
             for t in [t1, t2]:
                 if t not in team_stats: team_stats[t] = {'atk': 1.0, 'def': 1.0, 'pts': 1.0}
@@ -110,3 +96,4 @@ class DataProcessor:
         
         return np.array([[h_stats['atk'], h_stats['def'], h_stats['pts'], 
                           a_stats['atk'], a_stats['def'], a_stats['pts'], h2h_t1_adv]])
+
