@@ -16,15 +16,18 @@ def load_and_train_engine():
     ml.train(features_df)
     
     teams = sorted(list(set(raw_df['team1'].unique()) | set(raw_df['team2'].unique())))
-    return dp, ml, teams
+    match_count = len(raw_df) # حساب عدد المباريات التي تدرب عليها
+    return dp, ml, teams, match_count
 
 st.title("🏰 المحرك الحصين V13.0")
 st.markdown("نظام التوقع الهجين (XGBoost + Groq LLM + الحوسبة السحابية للبيانات)")
 st.markdown("---")
 
 try:
-    with st.spinner("جاري جلب البيانات من GitHub وتدريب نموذج الذكاء الاصطناعي..."):
-        dp, ml, teams = load_and_train_engine()
+    with st.spinner("جاري طحن البيانات التاريخية من 1993 وتدريب نموذج الذكاء الاصطناعي..."):
+        # استلام عدد المباريات وعرضه في الواجهة الجانبية
+        dp, ml, teams, match_count = load_and_train_engine()
+        st.sidebar.success(f"📚 حجم قاعدة التدريب: {match_count} مباراة")
 except Exception as e:
     st.error(f"خطأ في تحميل البيانات: {e}")
     st.stop()
