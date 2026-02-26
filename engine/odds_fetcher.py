@@ -29,6 +29,7 @@ class OddsFetcher:
         # البحث في البريميرليج والشامبيونشيب
         sports = ['soccer_epl', 'soccer_efl_championship']
         for sport in sports:
+            # regions=eu,uk يجلب الشركات الأوروبية والبريطانية (التي تتضمن 1xbet و bet365)
             url = f"https://api.the-odds-api.com/v4/sports/{sport}/odds/?apiKey={self.api_key}&regions=eu,uk&markets=h2h"
             try:
                 response = requests.get(url)
@@ -38,15 +39,35 @@ class OddsFetcher:
                         # إذا وجدنا المباراة المطلوبة
                         if self._is_match(home_team, match['home_team']) and self._is_match(away_team, match['away_team']):
                             if match['bookmakers']:
-                                # نختار أول شركة متاحة (غالباً Pinnacle أو Bet365)
-                                bookie = match['bookmakers'][0] 
-                                outcomes = bookie['markets'][0]['outcomes']
+                                
+                                # --- نظام الأولويات الذكي ---
+                                target_bookie = None
+                                
+                                # قائمة الشركات المفضلة بالترتيب (1xBet في الصدارة)
+                                preferred_bookies = ['onexbet', '1xbet', 'bet365', 'pinnacle', 'williamhill', 'unibet_eu', 'betfair_ex_eu']
+                                
+                                # 1. محاولة إيجاد شركة من القائمة المفضلة
+                                for pref in preferred_bookies:
+                                    for bookie in match['bookmakers']:
+                                        if bookie['key'].lower() == pref:
+                                            target_bookie = bookie
+                                            break
+                                    if target_bookie:
+                                        break # وجدنا شركة مفضلة، نخرج من الحلقة
+                                        
+                                # 2. إذا لم نجد أياً من القائمة المحددة، نأخذ أول شركة متاحة كبديل
+                                if not target_bookie:
+                                    target_bookie = match['bookmakers'][0]
+
+                                # 3. استخراج الكوتا (Odds)
+                                outcomes = target_bookie['markets'][0]['outcomes']
                                 odds = {'home': 0, 'draw': 0, 'away': 0}
                                 for out in outcomes:
                                     if out['name'] == match['home_team']: odds['home'] = out['price']
                                     elif out['name'] == match['away_team']: odds['away'] = out['price']
                                     elif out['name'].lower() == 'draw': odds['draw'] = out['price']
-                                return odds, bookie['title']
+                                
+                                return odds, target_bookie['title']
             except Exception as e:
                 return None, f"خطأ في الاتصال: {e}"
                 
