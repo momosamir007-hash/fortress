@@ -15,11 +15,11 @@ class DataProcessor:
             for league in self.leagues:
                 url = self.base_url.format(season, league)
                 try:
-                    # قراءة ملف CSV مباشرة من الإنترنت بضغطة زر
+                    # قراءة ملف CSV مباشرة من الإنترنت
                     df = pd.read_csv(url, on_bad_lines='skip')
                     # أخذ الأعمدة المهمة فقط (الفرق والأهداف) وحذف الأسطر الفارغة
                     df = df[['HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']].dropna()
-                    # إعادة تسمية الأعمدة لتتوافق مع محرك XGBoost الخاص بنا
+                    # إعادة تسمية الأعمدة
                     df.rename(columns={'HomeTeam': 'team1', 'AwayTeam': 'team2', 'FTHG': 'goals1', 'FTAG': 'goals2'}, inplace=True)
                     dfs.append(df)
                 except Exception:
@@ -29,7 +29,7 @@ class DataProcessor:
             raise ValueError("لم يتم جلب أي بيانات! يرجى التحقق من الاتصال بالإنترنت.")
             
         raw_df = pd.concat(dfs, ignore_index=True)
-        # تنظيف الأسماء من أي مسافات فارغة لضمان عدم تكرار الفرق
+        # تنظيف الأسماء لضمان عدم تكرار الفرق
         raw_df['team1'] = raw_df['team1'].astype(str).str.strip()
         raw_df['team2'] = raw_df['team2'].astype(str).str.strip()
         return raw_df
@@ -96,4 +96,3 @@ class DataProcessor:
         
         return np.array([[h_stats['atk'], h_stats['def'], h_stats['pts'], 
                           a_stats['atk'], a_stats['def'], a_stats['pts'], h2h_t1_adv]])
-
