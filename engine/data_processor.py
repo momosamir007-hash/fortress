@@ -3,8 +3,13 @@ import numpy as np
 
 class DataProcessor:
     def __init__(self):
-        # المواسم (مثال: 2425 تعني 2024-2025)
-        self.seasons = ["1920", "2021", "2122", "2223", "2324", "2425"]
+        # الكود الجديد: جلب كل المواسم من 1993 حتى 2026 آلياً
+        self.seasons = []
+        for year in range(1993, 2026):
+            start_yr = str(year)[-2:].zfill(2)
+            end_yr = str(year + 1)[-2:].zfill(2)
+            self.seasons.append(f"{start_yr}{end_yr}")
+            
         # E0 = الدوري الإنجليزي الممتاز | E1 = الشامبيونشيب
         self.leagues = ["E0", "E1"]
         self.base_url = "https://www.football-data.co.uk/mmz4281/{}/{}.csv"
@@ -15,11 +20,8 @@ class DataProcessor:
             for league in self.leagues:
                 url = self.base_url.format(season, league)
                 try:
-                    # قراءة ملف CSV مباشرة من الإنترنت
                     df = pd.read_csv(url, on_bad_lines='skip')
-                    # أخذ الأعمدة المهمة فقط (الفرق والأهداف) وحذف الأسطر الفارغة
                     df = df[['HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']].dropna()
-                    # إعادة تسمية الأعمدة
                     df.rename(columns={'HomeTeam': 'team1', 'AwayTeam': 'team2', 'FTHG': 'goals1', 'FTAG': 'goals2'}, inplace=True)
                     dfs.append(df)
                 except Exception:
@@ -29,7 +31,6 @@ class DataProcessor:
             raise ValueError("لم يتم جلب أي بيانات! يرجى التحقق من الاتصال بالإنترنت.")
             
         raw_df = pd.concat(dfs, ignore_index=True)
-        # تنظيف الأسماء لضمان عدم تكرار الفرق
         raw_df['team1'] = raw_df['team1'].astype(str).str.strip()
         raw_df['team2'] = raw_df['team2'].astype(str).str.strip()
         return raw_df
