@@ -17,7 +17,8 @@ class OracleLLM:
                 raise ValueError("مفتاح Groq غير موجود في إعدادات Secrets!")
             
             self.client = Groq(api_key=key)
-            self.model_name = "llama3-8b-8192"
+            self.model_name = "llama-3.3-70b-versatile"
+
 
     def get_double_chance(self, h_team, a_team, probs):
         prompt = f'''
