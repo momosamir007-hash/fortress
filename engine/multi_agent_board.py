@@ -60,7 +60,7 @@ class MultiAgentBoard:
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.1, # حرارة منخفضة جداً لمنع الهلوسة والالتزام بالبيانات
-            "max_tokens": 400
+            "max_tokens": 800
         }
 
         # محاولة الاتصال مرتين، مع التبديل لموديل أخف وأسرع في حال فشل الموديل الأساسي
