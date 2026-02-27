@@ -5,176 +5,262 @@ import streamlit as st
 import concurrent.futures
 from groq import Groq
 
-# ---------------- 1. إدارة قاموس التعريب ---------------- #
+# ============================================================
+# 1. إدارة قاموس التعريب
+# ============================================================
 def load_team_dictionary(filepath="teams_dictionary.json"):
     """تحميل قاموس أسماء الفرق من ملف JSON الخارجي"""
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
-        return {} # إرجاع قاموس فارغ إذا لم يتم إنشاء الملف بعد
+        st.warning("⚠️ ملف قاموس الفرق غير موجود. سيتم استخدام الأسماء الإنجليزية.")
+        return {}
+    except json.JSONDecodeError:
+        st.error("❌ ملف قاموس الفرق تالف. تحقق من صيغة JSON.")
+        return {}
 
-# تحميل القاموس مرة واحدة عند استدعاء الملف
 ARABIC_TEAM_NAMES = load_team_dictionary()
 
 def translate_team(english_name):
-    """البحث عن اسم الفريق وتعريبه، وإرجاع الاسم الأصلي إذا لم يتوفر"""
+    """ البحث عن اسم الفريق وتعريبه بدقة. """
+    # تنظيف النص لتفادي أخطاء المسافات
+    clean_eng_name = english_name.strip().lower()
+    
+    # أولاً: تطابق كامل (الأدق)
     for key, arabic_name in ARABIC_TEAM_NAMES.items():
-        if key.lower() in english_name.lower():
+        if key.strip().lower() == clean_eng_name:
             return arabic_name
-    return english_name
 
-# ---------------- 2. إدارة المفاتيح السرية ---------------- #
+    # ثانياً: تطابق جزئي (احتياطي) مع أولوية للاسم الأطول
+    best_match = None
+    best_len = 0
+    for key, arabic_name in ARABIC_TEAM_NAMES.items():
+        if key.strip().lower() in clean_eng_name and len(key) > best_len:
+            best_match = arabic_name
+            best_len = len(key)
+            
+    return best_match if best_match else english_name
+
+# ============================================================
+# 2. إدارة المفاتيح السرية
+# ============================================================
 def get_secret(key_name):
+    """جلب المفتاح من أسرار Streamlit أو متغيرات البيئة"""
     try:
-        if key_name in st.secrets:
+        if hasattr(st, 'secrets') and key_name in st.secrets:
             return st.secrets[key_name]
-    except:
+    except FileNotFoundError:
         pass
+    except Exception as e:
+        st.sidebar.warning(f"⚠️ خطأ في قراءة المفتاح {key_name}: {e}")
     return os.getenv(key_name)
 
-# ---------------- 3. فئة مجلس الخبراء (غرفة العمليات) ---------------- #
+# ============================================================
+# 3. فئة مجلس الخبراء (غرفة العمليات)
+# ============================================================
+PRIMARY_MODEL = "qwen-3-235b-a22b-instruct-2507"
+FALLBACK_MODEL = "llama3.1-8b"
+FAST_MODEL = "llama3.1-8b"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+
 class MultiAgentBoard:
-    def __init__(self):
+    def __init__(self, confidence_threshold=15):
         self.cerebras_key = get_secret("CEREBRAS_API_KEY")
         self.groq_key = get_secret("GROQ_API_KEY")
+        self.confidence_threshold = confidence_threshold
         self.groq_client = None
+        
         if self.groq_key:
-            self.groq_client = Groq(api_key=self.groq_key)
+            try:
+                self.groq_client = Groq(api_key=self.groq_key)
+            except Exception as e:
+                st.warning(f"⚠️ فشل تهيئة عميل Groq: {e}")
 
     def ask_cerebras_expert(self, system_prompt, user_prompt, model_id):
-        """استدعاء نماذج Cerebras مع نظام التبديل الذكي في حال الفشل"""
         if not self.cerebras_key:
-            return "❌ مفتاح Cerebras مفقود."
-
+            return "❌ مفتاح Cerebras مفقود. أضفه في الإعدادات."
+            
         url = "https://api.cerebras.ai/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.cerebras_key}",
             "Content-Type": "application/json"
         }
-
-        payload = {
-            "model": model_id,
+        base_payload = {
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            "temperature": 0.1, # حرارة منخفضة جداً لمنع الهلوسة والالتزام بالبيانات
+            "temperature": 0.1,
             "max_tokens": 800
         }
 
-        # محاولة الاتصال مرتين، مع التبديل لموديل أخف وأسرع في حال فشل الموديل الأساسي
-        for attempt in range(2):
+        models_to_try = [model_id, FALLBACK_MODEL]
+        if model_id == FALLBACK_MODEL:
+            models_to_try = [FALLBACK_MODEL]
+
+        for current_model in models_to_try:
             try:
-                r = requests.post(url, headers=headers, json=payload, timeout=45)
-                if r.status_code == 200:
-                    return r.json()['choices'][0]['message']['content']
+                payload = {**base_payload, "model": current_model}
+                timeout = 45 if current_model != FALLBACK_MODEL else 20
                 
-                payload["model"] = "llama3.1-8b"
-                r2 = requests.post(url, headers=headers, json=payload, timeout=20)
-                if r2.status_code == 200:
-                    return r2.json()['choices'][0]['message']['content']
-            except Exception:
+                # تم إضافة stream=False لضمان استقرار الاتصال
+                r = requests.post(
+                    url, headers=headers, json=payload, timeout=timeout, stream=False
+                )
+                
+                if r.status_code == 200:
+                    data = r.json()
+                    if 'choices' in data and len(data['choices']) > 0:
+                        return data['choices'][0]['message']['content']
+                elif r.status_code == 429:
+                    continue 
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
                 continue
-        return "❌ تعذر جلب التحليل من الخبير نتيجة ضغط على الخادم."
+            except Exception as e:
+                st.warning(f"⚠️ خطأ غير متوقع مع {current_model}: {e}")
+                continue
+                
+        return "❌ تعذر جلب التحليل من الخبير. جميع النماذج مشغولة حالياً."
 
-    def run_board_meeting(self, home_team_eng, away_team_eng, h_xg, a_xg, probs, odds_data):
-        
-        # تعريب أسماء الفرق لضمان عدم تداخل اللغتين في واجهة المستخدم
-        home_team = translate_team(home_team_eng)
-        away_team = translate_team(away_team_eng)
-
-        # تجهيز السياق الموحد باللغة العربية فقط
-        context = (
-            f"المباراة: {home_team} (صاحب الأرض) ضد {away_team} (الفريق الضيف).\n"
-            f"البيانات المعتمدة للمباراة:\n"
-            f"- فرصة فوز {home_team}: {probs[2]*100:.1f}%\n"
-            f"- فرصة التعادل: {probs[1]*100:.1f}%\n"
-            f"- فرصة فوز {away_team}: {probs[0]*100:.1f}%\n"
-            f"- الأهداف المتوقعة: {home_team} ({h_xg:.2f}) | {away_team} ({a_xg:.2f})\n"
-            f"- كوتا السوق المتوفرة: {odds_data}\n"
-            f"- ملاحظة تكتيكية وتاريخية: {home_team} يمتلك أفضلية في المواجهات المباشرة (H2H) عبر السنوات."
-        )
-
-        # ---------------- 4. هندسة الأوامر الصارمة للخبراء ---------------- #
-        experts = [
-            # 1. المحلل الإحصائي (يعتمد على الأرقام فقط)
-            (
-                "أنت محلل بيانات رياضي صارم. دورك هو سرد قراءة للبيانات المتوفرة فقط دون أي تنظير تكتيكي. "
-                "قواعد صارمة:\n"
-                "1. لا تخترع أي أرقام من خارج السياق.\n"
-                "2. اكتب فقرة قصيرة ومباشرة باللغة العربية الفصحى.\n"
-                "3. استخدم أسماء الفرق العربية المرفقة ولا تستخدم الإنجليزية إطلاقاً.",
-                context, "llama3.1-8b"
-            ),
-            # 2. المحلل التكتيكي والنفسي (ممنوع من استخدام الأرقام نهائياً)
-            (
-                "أنت محلل تكتيكي ونفسي خبير في كرة القدم. دورك هو قراءة سيناريو المباراة استناداً للتفوق التاريخي وأفضلية الملعب. "
-                "قواعد صارمة جداً:\n"
-                "1. يُمنع منعاً باتاً كتابة أي رقم، نسبة مئوية، أو إحصائية في ردك (حتى الأصفار).\n"
-                "2. ركز على الضغط العالي، الاستحواذ، العامل النفسي، وعقدة المواجهات المباشرة.\n"
-                "3. اكتب باللغة العربية الفصحى فقط وبدون أي كلمات إنجليزية.",
-                context, "qwen-3-235b-a22b-instruct-2507"
-            ),
-            # 3. الخبير المالي والمراهنات (يبحث عن القيمة)
-            (
-                "أنت خبير مراهنات وتقييم مخاطر مالية. دورك استخراج 'القيمة' عبر مقارنة احتمالات الخوارزمية مع كوتا السوق. "
-                "قواعد صارمة:\n"
-                "1. حدد بوضوح أين تكمن القيمة الآمنة للمستثمر.\n"
-                "2. تجنب العاطفة وركز على العائد المالي مقابل الخطر الرياضي.\n"
-                "3. اكتب باللغة العربية فقط.",
-                context, "llama3.1-8b"
+    @staticmethod
+    def _build_context(home_team, away_team, h_xg, a_xg, probs, odds_data):
+        if probs[2] > probs[0]:
+            h2h_note = f"{home_team} يملك الأفضلية الإحصائية بناءً على البيانات."
+        elif probs[0] > probs[2]:
+            h2h_note = f"{away_team} يملك الأفضلية الإحصائية بناءً على البيانات."
+        else:
+            h2h_note = "لا توجد أفضلية واضحة لأي فريق بناءً على البيانات."
+            
+        odds_text = "غير متوفرة حالياً"
+        if odds_data:
+            odds_text = (
+                f"فوز {home_team}: {odds_data.get('home', 'N/A')} | "
+                f"تعادل: {odds_data.get('draw', 'N/A')} | "
+                f"فوز {away_team}: {odds_data.get('away', 'N/A')}"
             )
+            
+        context = (
+            f"المباراة: {home_team} (صاحب الأرض) ضد {away_team} (الضيف).\n"
+            f"البيانات المعتمدة:\n"
+            f"- فرصة فوز {home_team}: {probs[2] * 100:.1f}%\n"
+            f"- فرصة التعادل: {probs[1] * 100:.1f}%\n"
+            f"- فرصة فوز {away_team}: {probs[0] * 100:.1f}%\n"
+            f"- الأهداف المتوقعة: {home_team} ({h_xg:.2f}) | {away_team} ({a_xg:.2f})\n"
+            f"- كوتا السوق: {odds_text}\n"
+            f"- الأفضلية: {h2h_note}"
+        )
+        return context
+
+    @staticmethod
+    def _define_experts(context):
+        return [
+            {
+                "system": (
+                    "أنت محلل بيانات رياضي صارم. دورك سرد قراءة للبيانات المتوفرة فقط.\n"
+                    "قواعد صارمة:\n"
+                    "1. لا تخترع أي أرقام من خارج السياق.\n"
+                    "2. اكتب فقرة قصيرة ومباشرة بالعربية الفصحى.\n"
+                    "3. استخدم أسماء الفرق العربية فقط."
+                ),
+                "user": context,
+                "model": FAST_MODEL
+            },
+            {
+                "system": (
+                    "أنت محلل تكتيكي ونفسي خبير في كرة القدم. دورك قراءة سيناريو المباراة.\n"
+                    "قواعد صارمة جداً:\n"
+                    "1. يُمنع كتابة أي رقم أو نسبة مئوية.\n"
+                    "2. ركز على: الضغط العالي، الاستحواذ، العامل النفسي، عقدة المواجهات.\n"
+                    "3. اكتب بالعربية الفصحى فقط."
+                ),
+                "user": context,
+                "model": PRIMARY_MODEL
+            },
+            {
+                "system": (
+                    "أنت خبير مراهنات وتقييم مخاطر مالية. دورك استخراج 'القيمة' عبر مقارنة "
+                    "احتمالات الخوارزمية مع كوتا السوق.\n"
+                    "قواعد صارمة:\n"
+                    "1. حدد بوضوح أين تكمن القيمة الآمنة.\n"
+                    "2. تجنب العاطفة وركز على العائد مقابل الخطر.\n"
+                    "3. اكتب بالعربية فقط."
+                ),
+                "user": context,
+                "model": FAST_MODEL
+            }
         ]
 
-        # تشغيل المحللين الثلاثة بالتوازي لتسريع الاستجابة
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [executor.submit(self.ask_cerebras_expert, e[0], e[1], e[2]) for e in experts]
-            results = [f.result() for f in futures]
+    def run_board_meeting(self, home_team_eng, away_team_eng, h_xg, a_xg, probs, odds_data):
+        home_team = translate_team(home_team_eng)
+        away_team = translate_team(away_team_eng)
+        context = self._build_context(home_team, away_team, h_xg, a_xg, probs, odds_data)
+        experts = self._define_experts(context)
 
+        # تم إزالة علامة التعليق (Uncomment) لتعريف المتغير وتفادي خطأ NameError
+        error_fallback = "⚠️ تعذر الحصول على تحليل هذا الخبير."
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                executor.submit(
+                    self.ask_cerebras_expert, e["system"], e["user"], e["model"]
+                ): i for i, e in enumerate(experts)
+            }
+            results = [error_fallback] * 3
+            for future in concurrent.futures.as_completed(futures):
+                idx = futures[future]
+                try:
+                    results[idx] = future.result(timeout=60)
+                except concurrent.futures.TimeoutError:
+                    results[idx] = "⏰ انتهت مهلة الخبير."
+                except Exception as e:
+                    results[idx] = f"❌ خطأ: {str(e)[:100]}"
+                    
         stat, tactic, finance = results
 
-        # ---------------- 5. إدارة المناظرة (الاشتباك الفكري) ---------------- #
-        debate_prompt = f"""
-        أدر مناظرة فنية قصيرة وحادة باللغة العربية بين الخبراء حول مباراة {home_team} و {away_team}:
-        - الإحصائي: {stat}
-        - التكتيكي: {tactic}
-        - المالي: {finance}
+        # تم تمرير السياق للمخرج لكي لا يقوم بتأليف معلومات خاطئة
+        debate_prompt = (
+            f"بناءً على الأرقام التالية:\n{context}\n\n"
+            f"أدر مناظرة فنية قصيرة وحادة بالعربية بين الخبراء:\n"
+            f"- الإحصائي: {stat}\n"
+            f"- التكتيكي: {tactic}\n"
+            f"- المالي: {finance}\n\n"
+            f"المطلوب: صغ نقاشاً احترافياً يركز على الصدام بين 'لغة الأرقام' و'الواقع التكتيكي والنفسي'. "
+            f"اكتب بالعربية فقط بأسلوب سهل القراءة."
+        )
         
-        المطلوب: صغ نقاشاً احترافياً يركز على الصدام بين 'لغة الأرقام' و 'الواقع النفسي والتكتيكي'. 
-        هل ستكسر 'المفاجأة' الأرقام؟ أم أن '{home_team}' سيكرر سيطرته التاريخية؟
-        تأكد من أن النص كامل باللغة العربية ومكتوب بأسلوب يسهل قراءته من اليمين لليسار.
-        """
-
         debate_text = self.ask_cerebras_expert(
-            "أنت مخرج استوديو تحليلي. تصيغ مناظرات حماسية واحترافية خالية من الحشو المفرط.",
+            "أنت مخرج استوديو تحليلي. تصيغ مناظرات احترافية خالية من الحشو.",
             debate_prompt,
-            "qwen-3-235b-a22b-instruct-2507"
+            PRIMARY_MODEL
         )
 
-        # ---------------- 6. القرار النهائي للمدير (Groq) ---------------- #
-        if not self.groq_client:
-            return stat, tactic, finance, debate_text, "⚠️ فشل الوصول للمدير النهائي (Groq)."
-
-        manager_prompt = f"""
-        بصفتك مدير غرفة العمليات، حلل المناظرة التالية لمباراة {home_team} ضد {away_team}:
-        {debate_text}
-        
-        أصدر قرارك الاستثماري والرياضي النهائي حصرياً بهذا التنسيق (باللغة العربية فقط كل عنصر في سطر جديد):
-        النتيجة المتوقعة: [أدخل النتيجة هنا]
-        التوقع المزدوج: [أدخل التوقع هنا]
-        نسبة الثقة: [أدخل النسبة هنا]%
-        الخيار الآمن: [أدخل الخيار المالي هنا]
-        الخلاصة: [سطرين يشرحان القرار النهائي بناءً على تلاقي التحليل المالي والتكتيكي]
-        """
-
-        try:
-            decision = self.groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": manager_prompt}],
-                temperature=0.1
-            ).choices[0].message.content
-        except Exception:
-            decision = "❌ فشل المدير في معالجة بيانات المناظرة."
-
+        decision = self._get_manager_decision(home_team, away_team, debate_text)
         return stat, tactic, finance, debate_text, decision
+
+    def _get_manager_decision(self, home_team, away_team, debate_text):
+        if not self.groq_client:
+            return "⚠️ مفتاح Groq مفقود. أضفه في الإعدادات لتفعيل قرار المدير النهائي."
+            
+        # إضافة تعليمات توجيهية أقوى للمدير للحفاظ على المنطقية
+        manager_prompt = (
+            f"بصفتك مدير غرفة العمليات الصارم، حلل المناظرة التالية لمباراة {home_team} ضد {away_team}:\n"
+            f"{debate_text}\n\n"
+            f"توجيه هام: إذا كان هناك تضارب بين المحللين، انحز للبيانات المضمونة وقم بخفض نسبة الثقة.\n\n"
+            f"أصدر قرارك النهائي بهذا التنسيق بالعربية (كل عنصر في سطر جديد):\n"
+            f"النتيجة المتوقعة: [النتيجة]\n"
+            f"التوقع المزدوج: [التوقع]\n"
+            f"نسبة الثقة: [النسبة]%\n"
+            f"الخيار الآمن: [الخيار المالي]\n"
+            f"الخلاصة: [سطرين يشرحان القرار النهائي]"
+        )
+        try:
+            response = self.groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[{"role": "user", "content": manager_prompt}],
+                temperature=0.1,
+                max_tokens=500
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"❌ فشل المدير في معالجة البيانات: {str(e)[:150]}"
