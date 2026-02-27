@@ -1,4 +1,4 @@
-import streamlit as st
+Import streamlit as st
 import numpy as np
 import time
 from engine.data_processor import DataProcessor
@@ -8,26 +8,8 @@ from engine.fixtures_fetcher import FixturesFetcher
 from engine.multi_agent_board import MultiAgentBoard
 from engine.team_dictionary import TeamDictionary
 
-# ---------------- إعدادات الصفحة و CSS المخصص (للمحاذاة RTL) ---------------- #
 st.set_page_config(page_title="المحرك الحصين V14", page_icon="🏰", layout="wide")
 
-st.markdown("""
-    <style>
-    /* إجبار النصوص داخل هذه الفئة على المحاذاة من اليمين لليسار */
-    .rtl-text {
-        direction: rtl;
-        text-align: right;
-        font-family: 'Arial', sans-serif;
-        line-height: 1.6;
-    }
-    /* تحسين شكل البطاقات */
-    div[data-testid="stMetricValue"] {
-        font-size: 1.8rem;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# ---------------- دوال التحميل والتدريب ---------------- #
 @st.cache_resource
 def load_and_train_engine():
     dp = DataProcessor()
@@ -42,7 +24,7 @@ def load_and_train_engine():
     return dp, ml, teams, match_count, features_df
 
 st.title("🏰 المحرك الحصين V14 (غرفة العمليات الذكية)")
-st.markdown("<div class='rtl-text'>XGBoost + Cerebras Debate + Groq Manager + Live Odds & Fixtures</div>", unsafe_allow_html=True)
+st.markdown("XGBoost + Cerebras Debate + Groq Manager + Live Odds & Fixtures")
 st.markdown("---")
 
 try:
@@ -53,7 +35,7 @@ except Exception as e:
     st.error(f"خطأ في تحميل البيانات: {e}")
     st.stop()
 
-# ---------------- إعدادات القائمة الجانبية ---------------- #
+# --- إعدادات القائمة الجانبية ---
 st.sidebar.header("⚙️ إعدادات الذكاء الاصطناعي")
 confidence_threshold = st.sidebar.slider("عتبة التدخل للـ LLM (الفرق %)", 5, 30, 15)
 
@@ -121,14 +103,15 @@ with tab1:
                 best_ev = max(ev_home, ev_draw, ev_away)
                 
                 if best_ev > 0.05:
+                    # منطق اختيار الهدف الاستثماري
                     if best_ev == ev_home: bt, ov, mp = f"فوز {home_team}", odds_data['home'], probs[2]
                     elif best_ev == ev_draw: bt, ov, mp = "التعادل", odds_data['draw'], probs[1]
                     else: bt, ov, mp = f"فوز {away_team}", odds_data['away'], probs[0]
                     
                     if mp >= min_win_prob:
-                        st.success(f"<div class='rtl-text'>💰 <b>قيمة استثمارية مكتشفة:</b> رهان على <b>{bt}</b> بكوتا ({ov}). العائد المتوقع: +{best_ev*100:.1f}%</div>", unsafe_allow_html=True)
+                        st.success(f"💰 **قيمة استثمارية مكتشفة:** رهان على **{bt}** بكوتا ({ov}). EV: +{best_ev*100:.1f}%")
                     else:
-                        st.warning(f"<div class='rtl-text'>🛡️ <b>تم حجب مخاطرة:</b> فرصة ({bt}) جيدة مالياً ولكنها ضعيفة إحصائياً ({mp*100:.1f}%).</div>", unsafe_allow_html=True)
+                        st.warning(f"🛡️ **تم حجب مخاطرة:** فرصة ({bt}) جيدة مالياً ولكنها ضعيفة إحصائياً ({mp*100:.1f}%).")
 
             # 4. غرفة العمليات والمناظرة (Cerebras + Groq)
             st.divider()
@@ -136,29 +119,24 @@ with tab1:
             
             with st.spinner("جاري إدارة المناظرة بين الخبراء عبر Cerebras..."):
                 board = MultiAgentBoard()
+                # التعديل لاستقبال 5 قيم
                 s_rep, t_rep, v_rep, debate_content, manager_decision = board.run_board_meeting(
                     home_team, away_team, h_xg, a_xg, probs, odds_data
                 )
                 
-                # عرض التقارير مع تنسيق RTL
+                # عرض تقارير الخبراء الأولية في أعمدة
                 exp_col1, exp_col2, exp_col3 = st.columns(3)
-                with exp_col1: 
-                    st.info("**📊 الإحصائي:**")
-                    st.markdown(f"<div class='rtl-text'>{s_rep}</div>", unsafe_allow_html=True)
-                with exp_col2: 
-                    st.warning("**⚽ التكتيكي:**")
-                    st.markdown(f"<div class='rtl-text'>{t_rep}</div>", unsafe_allow_html=True)
-                with exp_col3: 
-                    st.success("**💰 المالي:**")
-                    st.markdown(f"<div class='rtl-text'>{v_rep}</div>", unsafe_allow_html=True)
+                with exp_col1: st.info(f"**📊 الإحصائي:**\n\n{s_rep}")
+                with exp_col2: st.warning(f"**⚽ التكتيكي:**\n\n{t_rep}")
+                with exp_col3: st.success(f"**💰 المالي:**\n\n{v_rep}")
             
-            # عرض نص المناظرة
+            # عرض نص المناظرة في Expander
             with st.expander("📺 شاهد تفاصيل المناظرة المباشرة بين الخبراء"):
-                st.markdown(f"<div class='rtl-text'>{debate_content}</div>", unsafe_allow_html=True)
+                st.markdown(debate_content)
                     
             st.divider()
             st.markdown("### 👑 القرار النهائي للمدير (خلاصة المناظرة)")
-            st.error(f"<div class='rtl-text' style='font-size: 1.1em; font-weight: bold;'>{manager_decision}</div>", unsafe_allow_html=True)
+            st.success(f"{manager_decision}")
 
 # ==========================================
 # التبويب الثاني: الفحص الرجعي (Backtest)
