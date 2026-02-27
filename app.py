@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 import time
+import requests
 from engine.data_processor import DataProcessor
 from engine.ml_model import FortressML
 from engine.odds_fetcher import OddsFetcher
@@ -8,8 +9,45 @@ from engine.fixtures_fetcher import FixturesFetcher
 from engine.multi_agent_board import MultiAgentBoard
 from engine.team_dictionary import TeamDictionary
 
+# ---------------- إعدادات الصفحة و CSS المخصص (للمحاذاة RTL) ---------------- #
 st.set_page_config(page_title="المحرك الحصين V14", page_icon="🏰", layout="wide")
 
+st.markdown("""
+    <style>
+    .rtl-text {
+        direction: rtl;
+        text-align: right;
+        font-family: 'Arial', sans-serif;
+        line-height: 1.6;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 1.8rem;
+    }
+    /* إجبار جميع صناديق التنبيهات على المحاذاة من اليمين لليسار */
+    div[data-testid="stAlert"] {
+        direction: rtl;
+        text-align: right;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# ---------------- دالة إرسال تنبيهات تليجرام ---------------- #
+def send_telegram_alert(bot_token, chat_id, message):
+    if not bot_token or not chat_id:
+        return # تجاهل الإرسال إذا لم يقم المستخدم بإدخال البيانات
+    
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(url, json=payload, timeout=5)
+    except Exception as e:
+        print(f"فشل إرسال التنبيه إلى تليجرام: {e}")
+
+# ---------------- دوال التحميل والتدريب ---------------- #
 @st.cache_resource
 def load_and_train_engine():
     dp = DataProcessor()
@@ -24,7 +62,7 @@ def load_and_train_engine():
     return dp, ml, teams, match_count, features_df
 
 st.title("🏰 المحرك الحصين V14 (غرفة العمليات الذكية)")
-st.markdown("XGBoost + Cerebras Debate + Groq Manager + Live Odds & Fixtures")
+st.markdown("<div class='rtl-text'>XGBoost + Cerebras Debate + Groq Manager + Live Odds & Fixtures</div>", unsafe_allow_html=True)
 st.markdown("---")
 
 try:
@@ -35,7 +73,7 @@ except Exception as e:
     st.error(f"خطأ في تحميل البيانات: {e}")
     st.stop()
 
-# --- إعدادات القائمة الجانبية ---
+# ---------------- إعدادات القائمة الجانبية ---------------- #
 st.sidebar.header("⚙️ إعدادات الذكاء الاصطناعي")
 confidence_threshold = st.sidebar.slider("عتبة التدخل للـ LLM (الفرق %)", 5, 30, 15)
 
@@ -43,6 +81,12 @@ st.sidebar.markdown("---")
 st.sidebar.header("💰 إعدادات الاستثمار (إدارة المخاطر)")
 st.sidebar.info("الرادار سيتجاهل أي فريق نسبة فوزه في الآلة أقل من هذا الرقم.")
 min_win_prob = st.sidebar.slider("الحد الأدنى لنسبة الفوز المقبولة (%)", 10, 80, 40) / 100.0
+
+st.sidebar.markdown("---")
+st.sidebar.header("📱 إشعارات تليجرام (اختياري)")
+st.sidebar.info("ضع بيانات البوت الخاص بك لتلقي تنبيهات بالفرص الاستثمارية القوية.")
+tg_token = st.sidebar.text_input("Bot Token", type="password")
+tg_chat_id = st.sidebar.text_input("Chat ID")
 
 tab1, tab2 = st.tabs(["🔮 غرفة العمليات والمناظرة", "📈 الفحص الرجعي (Backtest)"])
 
@@ -94,8 +138,10 @@ with tab1:
             m_col2.metric("تعادل", f"{probs[1]*100:.1f}%")
             m_col3.metric(f"فوز {away_team}", f"{probs[0]*100:.1f}%")
             
-            # 3. القيمة الاستثمارية
+            # 3. القيمة الاستثمارية (وتهيئة رسالة تليجرام)
             st.divider()
+            telegram_msg = ""
+            
             if odds_data:
                 ev_home = (probs[2] * odds_data['home']) - 1
                 ev_draw = (probs[1] * odds_data['draw']) - 1
@@ -103,13 +149,14 @@ with tab1:
                 best_ev = max(ev_home, ev_draw, ev_away)
                 
                 if best_ev > 0.05:
-                    # منطق اختيار الهدف الاستثماري
                     if best_ev == ev_home: bt, ov, mp = f"فوز {home_team}", odds_data['home'], probs[2]
                     elif best_ev == ev_draw: bt, ov, mp = "التعادل", odds_data['draw'], probs[1]
                     else: bt, ov, mp = f"فوز {away_team}", odds_data['away'], probs[0]
                     
                     if mp >= min_win_prob:
-                        st.success(f"💰 **قيمة استثمارية مكتشفة:** رهان على **{bt}** بكوتا ({ov}). EV: +{best_ev*100:.1f}%")
+                        invest_text = f"💰 **قيمة استثمارية مكتشفة:** رهان على **{bt}** بكوتا ({ov}). العائد المتوقع: +{best_ev*100:.1f}%"
+                        st.success(invest_text)
+                        telegram_msg += f"🚨 **تنبيه استثماري جديد** 🚨\nالمباراة: {home_team} 🆚 {away_team}\n\n{invest_text}\n\n"
                     else:
                         st.warning(f"🛡️ **تم حجب مخاطرة:** فرصة ({bt}) جيدة مالياً ولكنها ضعيفة إحصائياً ({mp*100:.1f}%).")
 
@@ -119,24 +166,32 @@ with tab1:
             
             with st.spinner("جاري إدارة المناظرة بين الخبراء عبر Cerebras..."):
                 board = MultiAgentBoard()
-                # التعديل لاستقبال 5 قيم
                 s_rep, t_rep, v_rep, debate_content, manager_decision = board.run_board_meeting(
                     home_team, away_team, h_xg, a_xg, probs, odds_data
                 )
                 
-                # عرض تقارير الخبراء الأولية في أعمدة
                 exp_col1, exp_col2, exp_col3 = st.columns(3)
-                with exp_col1: st.info(f"**📊 الإحصائي:**\n\n{s_rep}")
-                with exp_col2: st.warning(f"**⚽ التكتيكي:**\n\n{t_rep}")
-                with exp_col3: st.success(f"**💰 المالي:**\n\n{v_rep}")
+                with exp_col1: 
+                    st.info("**📊 الإحصائي:**")
+                    st.markdown(f"<div class='rtl-text'>{s_rep}</div>", unsafe_allow_html=True)
+                with exp_col2: 
+                    st.warning("**⚽ التكتيكي:**")
+                    st.markdown(f"<div class='rtl-text'>{t_rep}</div>", unsafe_allow_html=True)
+                with exp_col3: 
+                    st.success("**💰 المالي:**")
+                    st.markdown(f"<div class='rtl-text'>{v_rep}</div>", unsafe_allow_html=True)
             
-            # عرض نص المناظرة في Expander
             with st.expander("📺 شاهد تفاصيل المناظرة المباشرة بين الخبراء"):
-                st.markdown(debate_content)
+                st.markdown(f"<div class='rtl-text'>{debate_content}</div>", unsafe_allow_html=True)
                     
             st.divider()
             st.markdown("### 👑 القرار النهائي للمدير (خلاصة المناظرة)")
-            st.success(f"{manager_decision}")
+            st.error(f"**{manager_decision}**")
+            
+            # إرسال التنبيه إلى تليجرام إذا كانت هناك فرصة قوية
+            if telegram_msg and tg_token and tg_chat_id:
+                telegram_msg += f"👑 **قرار المدير النهائي:**\n{manager_decision}"
+                send_telegram_alert(tg_token, tg_chat_id, telegram_msg)
 
 # ==========================================
 # التبويب الثاني: الفحص الرجعي (Backtest)
