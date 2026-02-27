@@ -1,4 +1,4 @@
-Import streamlit as st
+import streamlit as st
 import numpy as np
 import time
 from engine.data_processor import DataProcessor
