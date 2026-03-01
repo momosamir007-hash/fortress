@@ -5,11 +5,7 @@ import streamlit as st
 import concurrent.futures
 from groq import Groq
 
-# ============================================================
-# 1. إدارة قاموس التعريب
-# ============================================================
 def load_team_dictionary(filepath="teams_dictionary.json"):
-    """تحميل قاموس أسماء الفرق من ملف JSON الخارجي"""
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -23,16 +19,12 @@ def load_team_dictionary(filepath="teams_dictionary.json"):
 ARABIC_TEAM_NAMES = load_team_dictionary()
 
 def translate_team(english_name):
-    """ البحث عن اسم الفريق وتعريبه بدقة. """
-    # تنظيف النص لتفادي أخطاء المسافات
     clean_eng_name = english_name.strip().lower()
     
-    # أولاً: تطابق كامل (الأدق)
     for key, arabic_name in ARABIC_TEAM_NAMES.items():
         if key.strip().lower() == clean_eng_name:
             return arabic_name
 
-    # ثانياً: تطابق جزئي (احتياطي) مع أولوية للاسم الأطول
     best_match = None
     best_len = 0
     for key, arabic_name in ARABIC_TEAM_NAMES.items():
@@ -42,24 +34,18 @@ def translate_team(english_name):
             
     return best_match if best_match else english_name
 
-# ============================================================
-# 2. إدارة المفاتيح السرية
-# ============================================================
 def get_secret(key_name):
-    """جلب المفتاح من أسرار Streamlit أو متغيرات البيئة"""
     try:
         if hasattr(st, 'secrets') and key_name in st.secrets:
             return st.secrets[key_name]
     except FileNotFoundError:
         pass
     except Exception as e:
-        st.sidebar.warning(f"⚠️ خطأ في قراءة المفتاح {key_name}: {e}")
+        pass
     return os.getenv(key_name)
 
-# ============================================================
-# 3. فئة مجلس الخبراء (غرفة العمليات)
-# ============================================================
-PRIMARY_MODEL = "qwen-3-235b-a22b-instruct-2507"
+# تصحيح أسماء النماذج لتتوافق مع Cerebras API
+PRIMARY_MODEL = "llama3.1-70b"
 FALLBACK_MODEL = "llama3.1-8b"
 FAST_MODEL = "llama3.1-8b"
 GROQ_MODEL = "llama-3.3-70b-versatile"
@@ -104,7 +90,6 @@ class MultiAgentBoard:
                 payload = {**base_payload, "model": current_model}
                 timeout = 45 if current_model != FALLBACK_MODEL else 20
                 
-                # تم إضافة stream=False لضمان استقرار الاتصال
                 r = requests.post(
                     url, headers=headers, json=payload, timeout=timeout, stream=False
                 )
@@ -118,7 +103,6 @@ class MultiAgentBoard:
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
                 continue
             except Exception as e:
-                st.warning(f"⚠️ خطأ غير متوقع مع {current_model}: {e}")
                 continue
                 
         return "❌ تعذر جلب التحليل من الخبير. جميع النماذج مشغولة حالياً."
@@ -197,8 +181,7 @@ class MultiAgentBoard:
         context = self._build_context(home_team, away_team, h_xg, a_xg, probs, odds_data)
         experts = self._define_experts(context)
 
-        # تم إزالة علامة التعليق (Uncomment) لتعريف المتغير وتفادي خطأ NameError
-        error_fallback = "⚠️ تعذر الحصول على تحليل هذا الخبير."
+        error_fallback = "❌ تعذر الحصول على تحليل هذا الخبير."
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             futures = {
@@ -214,17 +197,21 @@ class MultiAgentBoard:
                 except concurrent.futures.TimeoutError:
                     results[idx] = "⏰ انتهت مهلة الخبير."
                 except Exception as e:
-                    results[idx] = f"❌ خطأ: {str(e)[:100]}"
+                    results[idx] = "❌ تعذر الحصول على تحليل هذا الخبير."
                     
         stat, tactic, finance = results
 
-        # تم تمرير السياق للمخرج لكي لا يقوم بتأليف معلومات خاطئة
+        # حماية المناظرة من هلوسة الأخطاء
+        clean_stat = "بيانات هذا الخبير غير متوفرة، تجاوز هذه النقطة." if "❌" in stat or "⏰" in stat else stat
+        clean_tactic = "بيانات هذا الخبير غير متوفرة، تجاوز هذه النقطة." if "❌" in tactic or "⏰" in tactic else tactic
+        clean_finance = "بيانات هذا الخبير غير متوفرة، تجاوز هذه النقطة." if "❌" in finance or "⏰" in finance else finance
+
         debate_prompt = (
             f"بناءً على الأرقام التالية:\n{context}\n\n"
             f"أدر مناظرة فنية قصيرة وحادة بالعربية بين الخبراء:\n"
-            f"- الإحصائي: {stat}\n"
-            f"- التكتيكي: {tactic}\n"
-            f"- المالي: {finance}\n\n"
+            f"- الإحصائي: {clean_stat}\n"
+            f"- التكتيكي: {clean_tactic}\n"
+            f"- المالي: {clean_finance}\n\n"
             f"المطلوب: صغ نقاشاً احترافياً يركز على الصدام بين 'لغة الأرقام' و'الواقع التكتيكي والنفسي'. "
             f"اكتب بالعربية فقط بأسلوب سهل القراءة."
         )
@@ -242,7 +229,6 @@ class MultiAgentBoard:
         if not self.groq_client:
             return "⚠️ مفتاح Groq مفقود. أضفه في الإعدادات لتفعيل قرار المدير النهائي."
             
-        # إضافة تعليمات توجيهية أقوى للمدير للحفاظ على المنطقية
         manager_prompt = (
             f"بصفتك مدير غرفة العمليات الصارم، حلل المناظرة التالية لمباراة {home_team} ضد {away_team}:\n"
             f"{debate_text}\n\n"
