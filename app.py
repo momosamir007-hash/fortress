@@ -253,9 +253,9 @@ with tab2:
                 backtest_ml.train(train_df)
                 
                 # تحديد أعمدة الميزات (جميع الأعمدة ما عدا الأعمدة المستهدفة)
-                target_cols = ['result', 'h_goals', 'a_goals']
-                feature_cols = [col for col in train_df.columns if col not in target_cols]
-                
+                # تحديد الميزات الرقمية فقط التي تفهمها الآلة
+                feature_cols = ['h_atk', 'h_def', 'h_pts', 'a_atk', 'a_def', 'a_pts', 'h2h_adv']
+
                 # التحقق من وجود جميع الأعمدة في test_df
                 missing_cols = set(feature_cols) - set(test_df.columns)
                 if missing_cols:
