@@ -132,7 +132,6 @@ with tab1:
             probs = ml.predict_match_probs(match_x)
             h_xg, a_xg = ml.predict_xg(match_x)
             
-            # ملاحظة: تأكد من إضافة دالة get_detailed_h2h في ملف data_processor.py الخاص بك
             try:
                 h2h_data = dp.get_detailed_h2h(home_team, away_team)
                 
@@ -215,9 +214,8 @@ with tab1:
                 with st.spinner("جاري إدارة المناظرة بين الخبراء..."):
                     board = MultiAgentBoard(confidence_threshold=confidence_threshold)
                     
-                    # استخدمنا h2h_data إذا كانت موجودة، وإلا أرسلنا None لتجنب الانهيار
                     s_rep, t_rep, v_rep, debate_content, manager_decision = board.run_board_meeting(
-                        home_team, away_team, h_xg, a_xg, probs, odds_data
+                        home_team, away_team, h_xg, a_xg, probs, odds_data, h2h_data if h2h_data else None
                     )
                     
                     c1, c2, c3 = st.columns(3)
@@ -260,14 +258,12 @@ with tab2:
                 backtest_ml = FortressML()
                 backtest_ml.train(train_df)
                 
-                # تحديد الميزات الرقمية فقط التي تفهمها الآلة
-                # التعديل المطلوب في app.py (التبويب الثاني)
+                # تحديد الميزات الـ 11 بالترتيب الدقيق كما تدرب عليها النموذج في ml_model.py
                 feature_cols = [
-                        'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 
-                        'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 
-                           'h2h_adv'
-                               ]
-
+                    'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 
+                    'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 
+                    'h2h_adv'
+                ]
 
                 # التحقق من وجود جميع الأعمدة في test_df
                 missing_cols = set(feature_cols) - set(test_df.columns)
@@ -275,8 +271,8 @@ with tab2:
                     st.error(f"الأعمدة المفقودة في بيانات الاختبار: {missing_cols}")
                     st.stop()
                 
-                # أخذ الميزات الرقمية فقط للاختبار (مما يمنع خطأ ValueError)
-                X_test = test_df[feature_cols].values
+                # أخذ الميزات الرقمية الصحيحة للاختبار
+                X_test = test_df[feature_cols]
                 y_test = test_df['result'].values
                 actual_h_goals = test_df['h_goals'].values
                 actual_a_goals = test_df['a_goals'].values
