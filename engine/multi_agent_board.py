@@ -119,10 +119,10 @@ class OutputValidator:
                 issues.append(
                     f"⚠️ تناقض: توقع {pred_a} أهداف لكن xG={a_xg:.2f}"
                 )
-        if pred_h > pred_a and probs[2] < 0.25:
-            issues.append("⚠️ توقع فوز الأرض لكن احتمالها < 25%")
-        if pred_a > pred_h and probs[0] < 0.25:
-            issues.append("⚠️ توقع فوز الضيف لكن احتماله < 25%")
+            if pred_h > pred_a and probs[2] < 0.25:
+                issues.append("⚠️ توقع فوز الأرض لكن احتمالها < 25%")
+            if pred_a > pred_h and probs[0] < 0.25:
+                issues.append("⚠️ توقع فوز الضيف لكن احتماله < 25%")
 
         if issues:
             prediction_text += "\n\n🔍 **فحص التناسق:**\n"
@@ -146,7 +146,7 @@ ANTI_HALLUCINATION_RULES = """
 
 
 # ============================================================
-# 5. فئة مجلس الخبراء (مُحسّنة)
+# 5. فئة مجلس الخبراء (مُحسّنة مع إضافة h2h_details)
 # ============================================================
 
 class MultiAgentBoard:
@@ -215,10 +215,10 @@ class MultiAgentBoard:
         return "❌ تعذر جلب التحليل. جميع النماذج مشغولة حالياً."
 
     # ─────────────────────────────────────────────
-    # بناء السياق (مع حراسة ضد الهلوسة)
+    # بناء السياق (مع حراسة ضد الهلوسة + h2h_details)
     # ─────────────────────────────────────────────
     @staticmethod
-    def _build_context(home_team, away_team, h_xg, a_xg, probs, odds_data):
+    def _build_context(home_team, away_team, h_xg, a_xg, probs, odds_data, h2h_details=None):
         if probs[2] > probs[0]:
             h2h_note = f"{home_team} يملك الأفضلية الإحصائية."
         elif probs[0] > probs[2]:
@@ -234,6 +234,16 @@ class MultiAgentBoard:
                 f"فوز {away_team}: {odds_data.get('away', 'N/A')}"
             )
 
+        # معالجة بيانات المواجهات المباشرة إن وُجدت
+        h2h_text = "غير متوفرة"
+        if h2h_details and isinstance(h2h_details, dict):
+            h2h_text = (
+                f"إجمالي المواجهات: {h2h_details.get('total', '?')} | "
+                f"فوز {home_team}: {h2h_details.get('home_wins', '?')} | "
+                f"فوز {away_team}: {h2h_details.get('away_wins', '?')} | "
+                f"تعادل: {h2h_details.get('draws', '?')}"
+            )
+
         context = (
             f"═══ بيانات المباراة (المصدر الوحيد) ═══\n"
             f"المباراة: {home_team} (أرض) ضد {away_team} (ضيف)\n"
@@ -245,6 +255,7 @@ class MultiAgentBoard:
             f"{away_team} ({a_xg:.2f})\n"
             f"• مجموع الأهداف المتوقع: {h_xg+a_xg:.2f}\n"
             f"• كوتا السوق: {odds_text}\n"
+            f"• المواجهات المباشرة: {h2h_text}\n"
             f"• الأفضلية: {h2h_note}\n"
             f"═══ نهاية البيانات ═══\n"
             f"⛔ أي معلومة غير مذكورة أعلاه تُعتبر غير متاحة."
@@ -297,16 +308,19 @@ class MultiAgentBoard:
         ]
 
     # ─────────────────────────────────────────────
-    # ⭐ الدالة الرئيسية - نفس التوقيع القديم ⭐
+    # ⭐ الدالة الرئيسية - الآن تقبل h2h_details اختيارياً ⭐
     # ─────────────────────────────────────────────
     def run_board_meeting(self, home_team_eng, away_team_eng,
-                          h_xg, a_xg, probs, odds_data):
-        """نفس التوقيع القديم بالضبط - 6 معاملات"""
+                          h_xg, a_xg, probs, odds_data, h2h_details=None):
+        """
+        تنفيذ اجتماع مجلس الخبراء.
+        - h2h_details: قاموس اختياري يحتوي على إحصائيات المواجهات المباشرة.
+        """
         home_team = translate_team(home_team_eng)
         away_team = translate_team(away_team_eng)
 
         context = self._build_context(
-            home_team, away_team, h_xg, a_xg, probs, odds_data
+            home_team, away_team, h_xg, a_xg, probs, odds_data, h2h_details
         )
         experts = self._define_experts(context)
         error_fallback = "⚠️ تعذر الحصول على تحليل هذا الخبير."
