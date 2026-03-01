@@ -234,35 +234,82 @@ with tab1:
 
 # ========== التبويب الثاني ========== #
 with tab2:
-    st.subheader("اختبار دقة النموذج على المواسم الماضية")
-    seasons_to_hide = st.slider("سنوات الاختبار", 1, 10, 5)
+    st.subheader("📊 اختبار دقة النموذج الشامل على المواسم الماضية")
+    seasons_to_hide = st.slider("سنوات الاختبار (مواسم)", 1, 10, 5)
     
-    if st.button("⚙️ بدء الفحص الرجعي", type="primary", use_container_width=True):
+    if st.button("⚙️ بدء الفحص الرجعي الشامل", type="primary", use_container_width=True):
         matches_to_hide = seasons_to_hide * MATCHES_PER_SEASON
         
         if matches_to_hide >= len(features_df):
             st.error(f"بيانات غير كافية. المتاح: {len(features_df)} مباراة، المطلوب: {matches_to_hide}")
         else:
-            with st.spinner("جاري الحساب..."):
+            with st.spinner("جاري طحن البيانات واختبار الخوارزميات..."):
+                # 1. تقسيم البيانات للتدريب والاختبار
                 split_idx = len(features_df) - matches_to_hide
                 train_df = features_df.iloc[:split_idx]
                 test_df = features_df.iloc[split_idx:]
                 
+                # 2. تدريب النموذج
                 backtest_ml = FortressML()
                 backtest_ml.train(train_df)
                 
+                # 3. تجهيز بيانات الاختبار
                 feature_cols = ['h_atk', 'h_def', 'h_pts', 'a_atk', 'a_def', 'a_pts', 'h2h_adv']
                 X_test = test_df[feature_cols]
                 y_test = test_df['result'].values
+                actual_h_goals = test_df['h_goals'].values
+                actual_a_goals = test_df['a_goals'].values
                 
+                # 4. التنبؤات (Predictions)
                 probs_test = backtest_ml.model.predict_proba(X_test)
-                # حساب أعلى احتمالين (الفرصة المزدوجة)
+                
+                # توقعات الأهداف (نمنع القيم السالبة بالـ clip ونقرب لأقرب رقم صحيح بالـ round)
+                pred_h_goals = np.round(np.clip(backtest_ml.model_reg_h.predict(X_test), 0, None))
+                pred_a_goals = np.round(np.clip(backtest_ml.model_reg_a.predict(X_test), 0, None))
+                
+                # 5. الحسابات
+                total_matches = len(y_test)
+                
+                # أ. الفرصة المزدوجة
                 top2_indices = np.argsort(probs_test, axis=1)[:, -2:]
+                correct_dc = sum(1 for i in range(total_matches) if y_test[i] in top2_indices[i])
+                acc_dc = (correct_dc / total_matches) * 100
                 
-                # حساب النتيجة مرة واحدة فقط بدلاً من مرتين
-                correct = sum(1 for i in range(len(y_test)) if y_test[i] in top2_indices[i])
-                accuracy = (correct / len(y_test)) * 100
+                # ب. الربح المباشر (أعلى احتمال)
+                top1_indices = np.argmax(probs_test, axis=1)
+                correct_direct = np.sum(y_test == top1_indices)
+                acc_direct = (correct_direct / total_matches) * 100
                 
-                st.metric("🎯 نسبة الدقة الحقيقية (Double Chance)", f"{accuracy:.2f}%")
-                st.progress(min(accuracy / 100, 1.0))
-                st.caption(f"تم التدريب على {len(train_df)} مباراة والاختبار على {len(test_df)} مباراة")
+                # ج. النتيجة الدقيقة (Exact Score)
+                correct_exact = np.sum((pred_h_goals == actual_h_goals) & (pred_a_goals == actual_a_goals))
+                acc_exact = (correct_exact / total_matches) * 100
+                
+                # د. عدد الأهداف (أكثر/أقل من 2.5 هدف)
+                pred_total = pred_h_goals + pred_a_goals
+                actual_total = actual_h_goals + actual_a_goals
+                correct_ou25 = np.sum((pred_total > 2.5) == (actual_total > 2.5))
+                acc_ou25 = (correct_ou25 / total_matches) * 100
+                
+                # 6. عرض النتائج بواجهة أنيقة
+                st.success(f"✅ تم التدريب على **{len(train_df)}** مباراة، واختبار الآلة على **{total_matches}** مباراة حقيقية.")
+                
+                col1, col2 = st.columns(2)
+                col3, col4 = st.columns(2)
+                
+                with col1:
+                    st.metric("🛡️ الفرصة المزدوجة (Double Chance)", f"{acc_dc:.2f}%")
+                    st.progress(min(acc_dc / 100, 1.0))
+                
+                with col2:
+                    st.metric("🎯 الربح المباشر (Match Winner)", f"{acc_direct:.2f}%")
+                    st.progress(min(acc_direct / 100, 1.0))
+                    
+                with col3:
+                    st.metric("⚽ الأهداف (Over/Under 2.5)", f"{acc_ou25:.2f}%")
+                    st.progress(min(acc_ou25 / 100, 1.0))
+                    
+                with col4:
+                    st.metric("🔮 النتيجة الدقيقة (Exact Score)", f"{acc_exact:.2f}%")
+                    st.progress(min(acc_exact / 100, 1.0))
+                    
+                st.info("💡 **ملاحظة للمستثمر:** توقع 'النتيجة الدقيقة' هو الأصعب رياضياً في عالم كرة القدم. تحقيق نسبة بين (10% إلى 15%) في النتيجة الدقيقة يعتبر إنجازاً ضخماً للذكاء الاصطناعي يتفوق على كبار المحللين.")
