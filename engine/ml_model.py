@@ -3,17 +3,19 @@ import pandas as pd
 
 class FortressML:
     def __init__(self):
+        # 💡 تم زيادة عمق الأشجار (max_depth=5) لتستطيع الآلة ربط العلاقة بين الإرهاق وقوة الهجوم
         self.model = xgb.XGBClassifier(
-            n_estimators=150, max_depth=4, learning_rate=0.05, 
+            n_estimators=150, max_depth=5, learning_rate=0.05, 
             eval_metric='mlogloss', device='cpu'
         )
         self.model_reg_h = xgb.XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.05, device='cpu')
         self.model_reg_a = xgb.XGBRegressor(n_estimators=100, max_depth=4, learning_rate=0.05, device='cpu')
 
     def train(self, df):
+        # 🚀 إضافة الميزات الـ 4 الجديدة لقائمة التدريب (المجموع 15 ميزة)
         X = df[[
-            'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 
-            'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 
+            'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 'h_rest_days', 'h_matchweek',
+            'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 'a_rest_days', 'a_matchweek',
             'h2h_adv'
         ]]
         y_cls = df['result']
