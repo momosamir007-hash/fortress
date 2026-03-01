@@ -35,6 +35,7 @@ class DataProcessor:
 
     def extract_features(self, df):
         team_stats = {}
+        team_recent = {} # القاموس الجديد لتتبع الفورمة الأخيرة
         h2h_stats = {}
         features = []
         
@@ -50,36 +51,47 @@ class DataProcessor:
                 
             h2h_t1_adv = h2h_stats[pair]['t1_wins'] - h2h_stats[pair]['t2_wins'] if pair[0] == t1 else h2h_stats[pair]['t2_wins'] - h2h_stats[pair]['t1_wins']
 
+            # تهيئة الفرق في القاموس الجديد إذا لم تكن موجودة
+            for t in [t1, t2]:
+                if t not in team_recent:
+                    team_recent[t] = {'scored': [], 'conceded': []}
+
+            # حساب متوسط آخر 5 مباريات (إذا لم يلعب الفريق يعطى 1.0 كقيمة افتراضية)
+            h_scored_5 = np.mean(team_recent[t1]['scored']) if len(team_recent[t1]['scored']) > 0 else 1.0
+            h_conceded_5 = np.mean(team_recent[t1]['conceded']) if len(team_recent[t1]['conceded']) > 0 else 1.0
+            
+            a_scored_5 = np.mean(team_recent[t2]['scored']) if len(team_recent[t2]['scored']) > 0 else 1.0
+            a_conceded_5 = np.mean(team_recent[t2]['conceded']) if len(team_recent[t2]['conceded']) > 0 else 1.0
+
             features.append({
                 'team1': t1, 'team2': t2,
                 'h_atk': team_stats.get(t1, {'atk': 1.0})['atk'],
                 'h_def': team_stats.get(t1, {'def': 1.0})['def'],
                 'h_pts': team_stats.get(t1, {'pts': 1.0})['pts'],
+                'h_avg_scored_5': h_scored_5,       # إضافة الميزة الجديدة
+                'h_avg_conceded_5': h_conceded_5,   # إضافة الميزة الجديدة
                 'a_atk': team_stats.get(t2, {'atk': 1.0})['atk'],
                 'a_def': team_stats.get(t2, {'def': 1.0})['def'],
                 'a_pts': team_stats.get(t2, {'pts': 1.0})['pts'],
+                'a_avg_scored_5': a_scored_5,       # إضافة الميزة الجديدة
+                'a_avg_conceded_5': a_conceded_5,   # إضافة الميزة الجديدة
                 'h2h_adv': h2h_t1_adv,
                 'result': result,
                 'h_goals': g1,  
                 'a_goals': g2   
             })
             
+            # --- تحديث الإحصائيات التراكمية (EMA) ---
             alpha = 0.3 
             for t in [t1, t2]:
                 if t not in team_stats:
-                    # معالجة منطقية للفرق الجديدة (التقييم الديناميكي)
                     if len(team_stats) == 0:
                         team_stats[t] = {'atk': 1.0, 'def': 1.0, 'pts': 1.0}
                     else:
                         avg_atk = sum(s['atk'] for s in team_stats.values()) / len(team_stats)
                         avg_def = sum(s['def'] for s in team_stats.values()) / len(team_stats)
                         avg_pts = sum(s['pts'] for s in team_stats.values()) / len(team_stats)
-                        
-                        team_stats[t] = {
-                            'atk': avg_atk * 0.8, 
-                            'def': avg_def * 0.8, 
-                            'pts': avg_pts * 0.8
-                        }
+                        team_stats[t] = {'atk': avg_atk * 0.8, 'def': avg_def * 0.8, 'pts': avg_pts * 0.8}
                 
             team_stats[t1]['atk'] = (alpha * g1) + ((1 - alpha) * team_stats[t1]['atk'])
             team_stats[t1]['def'] = (alpha * g2) + ((1 - alpha) * team_stats[t1]['def'])
@@ -89,11 +101,24 @@ class DataProcessor:
             team_stats[t2]['def'] = (alpha * g1) + ((1 - alpha) * team_stats[t2]['def'])
             team_stats[t2]['pts'] = (alpha * (3 if result==0 else 1 if result==1 else 0)) + ((1 - alpha) * team_stats[t2]['pts'])
             
+            # --- تحديث الفورمة القصيرة (آخر 5 مباريات) ---
+            team_recent[t1]['scored'].append(g1)
+            team_recent[t1]['conceded'].append(g2)
+            team_recent[t2]['scored'].append(g2)
+            team_recent[t2]['conceded'].append(g1)
+            
+            # الاحتفاظ بآخر 5 مباريات فقط
+            team_recent[t1]['scored'] = team_recent[t1]['scored'][-5:]
+            team_recent[t1]['conceded'] = team_recent[t1]['conceded'][-5:]
+            team_recent[t2]['scored'] = team_recent[t2]['scored'][-5:]
+            team_recent[t2]['conceded'] = team_recent[t2]['conceded'][-5:]
+
             if result == 2: h2h_stats[pair]['t1_wins' if pair[0] == t1 else 't2_wins'] += 1
             elif result == 0: h2h_stats[pair]['t2_wins' if pair[0] == t1 else 't1_wins'] += 1
             else: h2h_stats[pair]['draws'] += 1
 
         self.latest_team_stats = team_stats
+        self.latest_team_recent = team_recent
         self.latest_h2h_stats = h2h_stats
         return pd.DataFrame(features)
 
@@ -101,9 +126,22 @@ class DataProcessor:
         h_stats = self.latest_team_stats.get(t1, {'atk': 1.0, 'def': 1.0, 'pts': 1.0})
         a_stats = self.latest_team_stats.get(t2, {'atk': 1.0, 'def': 1.0, 'pts': 1.0})
         
+        h_recent = self.latest_team_recent.get(t1, {'scored': [1.0], 'conceded': [1.0]})
+        a_recent = self.latest_team_recent.get(t2, {'scored': [1.0], 'conceded': [1.0]})
+        
+        h_scored_5 = np.mean(h_recent['scored']) if h_recent['scored'] else 1.0
+        h_conceded_5 = np.mean(h_recent['conceded']) if h_recent['conceded'] else 1.0
+        a_scored_5 = np.mean(a_recent['scored']) if a_recent['scored'] else 1.0
+        a_conceded_5 = np.mean(a_recent['conceded']) if a_recent['conceded'] else 1.0
+
         pair = tuple(sorted([t1, t2]))
         h2h = self.latest_h2h_stats.get(pair, {'t1_wins': 0, 't2_wins': 0, 'draws': 0})
         h2h_t1_adv = h2h['t1_wins'] - h2h['t2_wins'] if pair[0] == t1 else h2h['t2_wins'] - h2h['t1_wins']
         
-        return np.array([[h_stats['atk'], h_stats['def'], h_stats['pts'], 
+        # المصفوفة الجديدة تحتوي على 11 متغيراً بدلاً من 7
+        return np.array([[
+            h_stats['atk'], h_stats['def'], h_stats['pts'], h_scored_5, h_conceded_5,
+            a_stats['atk'], a_stats['def'], a_stats['pts'], a_scored_5, a_conceded_5, 
+            h2h_adv
+        ]])
                           a_stats['atk'], a_stats['def'], a_stats['pts'], h2h_t1_adv]])
