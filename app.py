@@ -233,6 +233,7 @@ with tab1:
                 send_telegram_alert(tg_token, tg_chat_id, telegram_msg)
 
 # ========== التبويب الثاني (الفحص الرجعي الشامل) ========== #
+# ========== التبويب الثاني (الفحص الرجعي الشامل) ========== #
 with tab2:
     st.subheader("📊 اختبار دقة النموذج الشامل على المواسم الماضية")
     seasons_to_hide = st.slider("سنوات الاختبار (مواسم)", 1, 10, 5)
@@ -251,13 +252,16 @@ with tab2:
                 backtest_ml = FortressML()
                 backtest_ml.train(train_df)
                 
-                # قائمة المتغيرات الـ 11 المحدثة
-                feature_cols = [
-                    'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 
-                    'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 
-                    'h2h_t1_adv'
-                ]
-
+                # تحديد أعمدة الميزات (جميع الأعمدة ما عدا الأعمدة المستهدفة)
+                target_cols = ['result', 'h_goals', 'a_goals']
+                feature_cols = [col for col in train_df.columns if col not in target_cols]
+                
+                # التحقق من وجود جميع الأعمدة في test_df
+                missing_cols = set(feature_cols) - set(test_df.columns)
+                if missing_cols:
+                    st.error(f"الأعمدة المفقودة في بيانات الاختبار: {missing_cols}")
+                    st.stop()
+                
                 X_test = test_df[feature_cols]
                 y_test = test_df['result'].values
                 actual_h_goals = test_df['h_goals'].values
@@ -306,4 +310,4 @@ with tab2:
                     st.metric("🔮 النتيجة الدقيقة (Exact Score)", f"{acc_exact:.2f}%")
                     st.progress(min(acc_exact / 100, 1.0))
                 
-                st.info("💡 يتم الآن حساب كافة المقاييس بناءً على المتغيرات الـ 11 الجديدة لضمان أقصى دقة ممكنة.")
+                st.info("💡 يتم الآن حساب كافة المقاييس بناءً على الميزات المتاحة.")
