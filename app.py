@@ -217,7 +217,7 @@ with tab1:
                     
                     # استخدمنا h2h_data إذا كانت موجودة، وإلا أرسلنا None لتجنب الانهيار
                     s_rep, t_rep, v_rep, debate_content, manager_decision = board.run_board_meeting(
-                        home_team, away_team, h_xg, a_xg, probs, odds_data, h2h_data if h2h_data else None
+                        home_team, away_team, h_xg, a_xg, probs, odds_data
                     )
                     
                     c1, c2, c3 = st.columns(3)
