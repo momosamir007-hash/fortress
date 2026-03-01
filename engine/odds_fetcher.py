@@ -10,20 +10,44 @@ class OddsFetcher:
         except Exception:
             self.api_key = os.getenv("ODDS_API_KEY")
 
-    def _is_match(self, name1, name2):
+        def _is_match(self, name1, name2):
         n1 = name1.lower().replace(" fc", "").strip()
         n2 = name2.lower().replace(" fc", "").strip()
         
+        # القاموس الشامل لربط أسماء قاعدة البيانات بالأسماء الرسمية في The Odds API
         aliases = {
-            "man utd": "manchester united", "man city": "manchester city",
-            "wolves": "wolverhampton", "nott'm forest": "nottingham",
-            "spurs": "tottenham", "sheff utd": "sheffield", "luton": "luton town"
+            "man utd": "manchester united", 
+            "man city": "manchester city",
+            "wolves": "wolverhampton wanderers", 
+            "nott'm forest": "nottingham forest",
+            "nottingham": "nottingham forest",
+            "spurs": "tottenham hotspur", 
+            "tottenham": "tottenham hotspur",
+            "sheff utd": "sheffield united", 
+            "luton": "luton town",
+            "brighton": "brighton and hove albion",
+            "leicester": "leicester city",
+            "leeds": "leeds united",
+            "ipswich": "ipswich town",
+            "west ham": "west ham united",
+            "newcastle": "newcastle united",
+            "aston villa": "aston villa"
         }
+        
         n1 = aliases.get(n1, n1)
         n2 = aliases.get(n2, n2)
         
+        # 1. فحص التطابق بنسبة 75%
         similarity = SequenceMatcher(None, n1, n2).ratio()
-        return similarity >= 0.75 
+        if similarity >= 0.75:
+            return True
+            
+        # 2. فحص التطابق الجزئي الآمن (يمنع تطابق الكلمات القصيرة جداً مثل Man)
+        if (n1 in n2 or n2 in n1) and len(n1) > 5 and len(n2) > 5:
+            return True
+            
+        return False
+
 
     def get_odds(self, home_team, away_team):
         if not self.api_key or self.api_key == "ضع_مفتاح_the_odds_هنا":
