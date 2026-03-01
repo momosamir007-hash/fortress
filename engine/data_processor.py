@@ -21,9 +21,11 @@ class DataProcessor:
                 url = self.base_url.format(season, league)
                 try:
                     df = pd.read_csv(url, on_bad_lines='skip')
-                    df = df[['HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']].dropna()
-                    df.rename(columns={'HomeTeam': 'team1', 'AwayTeam': 'team2', 'FTHG': 'goals1', 'FTAG': 'goals2'}, inplace=True)
-                    dfs.append(df)
+                    # 💡 أضفنا جلب عمود التاريخ (Date) للتحليل الزمني
+                    if 'Date' in df.columns:
+                        df = df[['Date', 'HomeTeam', 'AwayTeam', 'FTHG', 'FTAG']].dropna()
+                        df.rename(columns={'HomeTeam': 'team1', 'AwayTeam': 'team2', 'FTHG': 'goals1', 'FTAG': 'goals2'}, inplace=True)
+                        dfs.append(df)
                 except Exception:
                     pass
         
@@ -33,22 +35,29 @@ class DataProcessor:
         raw_df = pd.concat(dfs, ignore_index=True)
         raw_df['team1'] = raw_df['team1'].astype(str).str.strip()
         raw_df['team2'] = raw_df['team2'].astype(str).str.strip()
+        
+        # 💡 التعديل الأهم لمنع تسريب البيانات: ترتيب المباريات زمنياً بشكل صارم
+        raw_df['Date'] = pd.to_datetime(raw_df['Date'], dayfirst=True, errors='coerce')
+        raw_df = raw_df.sort_values('Date').dropna(subset=['Date']).reset_index(drop=True)
+        
         return raw_df
 
     def extract_features(self, df):
         team_stats = {}
         team_recent = {}
         h2h_stats = {}
+        team_last_match_date = {} # 💡 تتبع تاريخ آخر مباراة لحساب الإرهاق
+        team_matches_played = {}  # 💡 تتبع عدد المباريات (رقم الجولة) لحساب الدوافع
         features = []
         
         for idx, row in df.iterrows():
             t1, t2 = row['team1'], row['team2']
             g1, g2 = int(row['goals1']), int(row['goals2'])
+            match_date = row['Date']
             
             result = 2 if g1 > g2 else (1 if g1 == g2 else 0)
-            
-            # ترتيب اسمي الفريقين أبجدياً لضمان توحيد مفتاح المواجهات المباشرة
             pair = tuple(sorted([t1, t2]))
+            
             if pair not in h2h_stats:
                 h2h_stats[pair] = {'t1_wins': 0, 't2_wins': 0, 'draws': 0}
                 
@@ -57,6 +66,18 @@ class DataProcessor:
             for t in [t1, t2]:
                 if t not in team_recent:
                     team_recent[t] = {'scored': [], 'conceded': []}
+                if t not in team_last_match_date:
+                    team_last_match_date[t] = match_date - pd.Timedelta(days=7) # افتراضي أسبوع راحة
+                if t not in team_matches_played:
+                    team_matches_played[t] = 0
+
+            # 💡 حساب عامل الإرهاق (أيام الراحة) - نضع حداً أقصى 14 يوماً لتجاهل التوقفات الصيفية
+            h_rest_days = min((match_date - team_last_match_date[t1]).days, 14)
+            a_rest_days = min((match_date - team_last_match_date[t2]).days, 14)
+            
+            # 💡 الجولة الحالية
+            h_matchweek = min(team_matches_played[t1] + 1, 38)
+            a_matchweek = min(team_matches_played[t2] + 1, 38)
 
             h_scored_5 = np.mean(team_recent[t1]['scored']) if len(team_recent[t1]['scored']) > 0 else 1.0
             h_conceded_5 = np.mean(team_recent[t1]['conceded']) if len(team_recent[t1]['conceded']) > 0 else 1.0
@@ -71,11 +92,15 @@ class DataProcessor:
                 'h_pts': team_stats.get(t1, {'pts': 1.0})['pts'],
                 'h_avg_scored_5': h_scored_5,
                 'h_avg_conceded_5': h_conceded_5,
+                'h_rest_days': h_rest_days,     # 🚀 ميزة الإرهاق الجديدة
+                'h_matchweek': h_matchweek,     # 🚀 ميزة الدوافع الجديدة
                 'a_atk': team_stats.get(t2, {'atk': 1.0})['atk'],
                 'a_def': team_stats.get(t2, {'def': 1.0})['def'],
                 'a_pts': team_stats.get(t2, {'pts': 1.0})['pts'],
                 'a_avg_scored_5': a_scored_5,
                 'a_avg_conceded_5': a_conceded_5,
+                'a_rest_days': a_rest_days,     # 🚀 ميزة الإرهاق الجديدة
+                'a_matchweek': a_matchweek,     # 🚀 ميزة الدوافع الجديدة
                 'h2h_adv': h2h_t1_adv,
                 'result': result,
                 'h_goals': g1,  
@@ -111,6 +136,12 @@ class DataProcessor:
             team_recent[t2]['scored'] = team_recent[t2]['scored'][-5:]
             team_recent[t2]['conceded'] = team_recent[t2]['conceded'][-5:]
 
+            # تحديث التواريخ والمباريات الملعوبة
+            team_last_match_date[t1] = match_date
+            team_last_match_date[t2] = match_date
+            team_matches_played[t1] = h_matchweek
+            team_matches_played[t2] = a_matchweek
+
             if result == 2: h2h_stats[pair]['t1_wins' if pair[0] == t1 else 't2_wins'] += 1
             elif result == 0: h2h_stats[pair]['t2_wins' if pair[0] == t1 else 't1_wins'] += 1
             else: h2h_stats[pair]['draws'] += 1
@@ -118,6 +149,10 @@ class DataProcessor:
         self.latest_team_stats = team_stats
         self.latest_team_recent = team_recent
         self.latest_h2h_stats = h2h_stats
+        # للتبسيط في المباريات المباشرة القادمة، سنفترض 7 أيام راحة إذا لم تكن معلومة
+        self.latest_team_last_match = team_last_match_date
+        self.latest_team_matches_played = team_matches_played
+        
         return pd.DataFrame(features)
 
     def get_match_features(self, t1, t2):
@@ -133,43 +168,31 @@ class DataProcessor:
         a_scored_5 = np.mean(a_recent['scored']) if a_recent['scored'] else 1.0
         a_conceded_5 = np.mean(a_recent['conceded']) if a_recent['conceded'] else 1.0
 
+        # افتراض 7 أيام راحة للمباريات المباشرة القادمة إذا لم تكن متوفرة
+        h_rest_days = 7
+        a_rest_days = 7
+        h_matchweek = min(self.latest_team_matches_played.get(t1, 0) + 1, 38)
+        a_matchweek = min(self.latest_team_matches_played.get(t2, 0) + 1, 38)
+
         pair = tuple(sorted([t1, t2]))
         h2h = self.latest_h2h_stats.get(pair, {'t1_wins': 0, 't2_wins': 0, 'draws': 0})
         h2h_t1_adv = h2h['t1_wins'] - h2h['t2_wins'] if pair[0] == t1 else h2h['t2_wins'] - h2h['t1_wins']
         
+        # ⚠️ تنبيه: المصفوفة الآن تتكون من 15 ميزة
         return np.array([[
-            h_stats['atk'], h_stats['def'], h_stats['pts'], h_scored_5, h_conceded_5,
-            a_stats['atk'], a_stats['def'], a_stats['pts'], a_scored_5, a_conceded_5, 
-            h2h_t1_adv 
+            h_stats['atk'], h_stats['def'], h_stats['pts'], h_scored_5, h_conceded_5, h_rest_days, h_matchweek,
+            a_stats['atk'], a_stats['def'], a_stats['pts'], a_scored_5, a_conceded_5, a_rest_days, a_matchweek,
+            h2h_adv 
         ]])
 
     def get_detailed_h2h(self, home_team, away_team):
-        """
-        دالة جديدة متطورة لاستخراج تفاصيل المواجهات المباشرة بين فريقين
-        لإرسالها إلى الخبير التكتيكي (LLM) ليفهم العقدة النفسية.
-        """
         pair = tuple(sorted([home_team, away_team]))
-        
-        # إذا لم يسبق لهما اللعب معاً
         if pair not in self.latest_h2h_stats:
             return {'home_wins': 0, 'away_wins': 0, 'draws': 0, 'total': 0}
-            
         stats = self.latest_h2h_stats[pair]
-        
-        # استخراج النتائج بناءً على من هو الأرض ومن هو الضيف الفعلي في الجولة القادمة
         if pair[0] == home_team:
-            h_wins = stats['t1_wins']
-            a_wins = stats['t2_wins']
+            h_wins, a_wins = stats['t1_wins'], stats['t2_wins']
         else:
-            h_wins = stats['t2_wins']
-            a_wins = stats['t1_wins']
-            
+            h_wins, a_wins = stats['t2_wins'], stats['t1_wins']
         draws = stats['draws']
-        total = h_wins + a_wins + draws
-        
-        return {
-            'home_wins': h_wins,
-            'away_wins': a_wins,
-            'draws': draws,
-            'total': total
-        }
+        return {'home_wins': h_wins, 'away_wins': a_wins, 'draws': draws, 'total': h_wins + a_wins + draws}
