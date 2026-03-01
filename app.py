@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import time
 import requests
+from scipy.stats import poisson  # 💡 إضافة مكتبة التوزيع الاحتمالي
 from engine.data_processor import DataProcessor
 from engine.ml_model import FortressML
 from engine.odds_fetcher import OddsFetcher
@@ -34,16 +35,38 @@ div[data-testid="stAlert"] {
 </style>
 """, unsafe_allow_html=True)
 
+# -------- دوال رياضية متقدمة (بواسون) -------- #
+def calculate_goal_lines(h_xg, a_xg):
+    """
+    تحسب احتمالات كل خطوط الأهداف (Over/Under) باستخدام توزيع بواسون
+    بناءً على الأهداف المتوقعة (xG) من نموذج XGBoost.
+    """
+    h_probs = [poisson.pmf(i, h_xg) for i in range(7)]
+    a_probs = [poisson.pmf(i, a_xg) for i in range(7)]
+    
+    exact_score_probs = np.outer(h_probs, a_probs)
+    
+    lines = {}
+    for line in [0.5, 1.5, 2.5, 3.5, 4.5]:
+        under_prob = 0.0
+        for h_goals in range(7):
+            for a_goals in range(7):
+                if h_goals + a_goals < line:
+                    under_prob += exact_score_probs[h_goals, a_goals]
+        
+        over_prob = 1.0 - under_prob
+        lines[f"O/U {line}"] = {
+            "Over": over_prob,
+            "Under": under_prob
+        }
+    return lines, exact_score_probs
+
 # -------- تليجرام -------- #
 def send_telegram_alert(bot_token, chat_id, message):
     if not bot_token or not chat_id:
         return
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id, 
-        "text": message, 
-        "parse_mode": "Markdown"
-    }
+    payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
     try:
         resp = requests.post(url, json=payload, timeout=5)
         resp.raise_for_status()
@@ -152,21 +175,48 @@ with tab1:
             m2.metric("تعادل", f"{probs[1]*100:.1f}%")
             m3.metric(f"فوز {away_team}", f"{probs[0]*100:.1f}%")
             
-            # --- دمج OracleLLM ---
-            st.markdown("#### 🤖 توقع النتيجة الدقيقة (Oracle LLM)")
+            # ==========================================
+            # ⚽ رادار الأهداف الشامل (Poisson Distribution)
+            # ==========================================
+            st.divider()
+            st.markdown("### ⚽ رادار الأهداف الشامل (بناءً على xG)")
+            
+            goal_lines, exact_score_matrix = calculate_goal_lines(h_xg, a_xg)
+            most_likely_h, most_likely_a = np.unravel_index(exact_score_matrix.argmax(), exact_score_matrix.shape)
+            math_exact_score = f"{most_likely_h} - {most_likely_a}"
+            math_exact_prob = exact_score_matrix[most_likely_h, most_likely_a] * 100
+            
+            st.info(f"🎯 **النتيجة الدقيقة الأقرب رياضياً:** {math_exact_score} (بنسبة ثقة {math_exact_prob:.1f}%)")
+            
+            col_g1, col_g2, col_g3 = st.columns(3)
+            lines_to_show = ["O/U 1.5", "O/U 2.5", "O/U 3.5"]
+            cols = [col_g1, col_g2, col_g3]
+            
+            for col, line in zip(cols, lines_to_show):
+                over_p = goal_lines[line]['Over'] * 100
+                under_p = goal_lines[line]['Under'] * 100
+                
+                if over_p > 65.0:
+                    rec = f"🔥 أكثر (Over) {over_p:.1f}%"
+                elif under_p > 65.0:
+                    rec = f"❄️ أقل (Under) {under_p:.1f}%"
+                else:
+                    rec = f"⚖️ متوازن (O:{over_p:.0f}% | U:{under_p:.0f}%)"
+                    
+                col.metric(f"خط الأهداف {line}", rec)
+
+            st.markdown("#### 🤖 الرؤية التكتيكية (Oracle LLM)")
             try:
                 oracle = OracleLLM()
-                with st.spinner("جاري استشارة الأوراكل لقراءة النتيجة النهائية..."):
-                    exact_score = oracle.get_exact_score(home_team, away_team, h_xg, a_xg, probs)
-                    double_chance = oracle.get_double_chance(home_team, away_team, probs)
-                    
-                    c_score, c_dc = st.columns(2)
-                    c_score.info(f"🎯 **النتيجة المتوقعة:** {exact_score}")
-                    c_dc.success(f"🛡️ **الخيار الآمن:** {double_chance}")
+                with st.spinner("جاري استشارة الأوراكل لقراءة السيناريو التكتيكي..."):
+                    llm_double_chance = oracle.get_double_chance(home_team, away_team, probs)
+                    st.success(f"🛡️ **الخيار الآمن (LLM):** {llm_double_chance}")
             except Exception as e:
                 st.warning(f"⚠️ تعذر الاتصال بخوادم Groq: {e}")
             
-            # --- القيمة الاستثمارية ---
+            # ==========================================
+            # القيمة الاستثمارية والمناظرة
+            # ==========================================
             st.divider()
             telegram_msg = ""
             
@@ -199,7 +249,6 @@ with tab1:
             else:
                 st.warning("⚠️ لم نتمكن من جلب كوتا السوق لهذه المباراة.")
                 
-            # --- المناظرة ---
             st.divider()
             st.subheader("🏛️ اجتماع مجلس الخبراء (Live AI Debate)")
             try:
@@ -234,7 +283,6 @@ with tab1:
 with tab2:
     st.subheader("📊 اختبار دقة النموذج الشامل (مع فلتر الفوضى الاستثماري)")
     
-    # 💡 التحديث الجديد: إضافة سلايدر للتحكم في الفلتر الاستثماري
     col_s1, col_s2 = st.columns(2)
     with col_s1:
         seasons_to_hide = st.slider("سنوات الاختبار (مواسم)", 1, 10, 5)
@@ -276,13 +324,10 @@ with tab2:
                 pred_h_goals_raw = np.round(np.clip(backtest_ml.model_reg_h.predict(X_test), 0, None))
                 pred_a_goals_raw = np.round(np.clip(backtest_ml.model_reg_a.predict(X_test), 0, None))
                 
-                # ==========================================
-                # 🚀 تطبيق فلتر الفوضى الاستثماري
-                # ==========================================
-                sorted_probs = np.sort(probs_test_raw, axis=1) # ترتيب الاحتمالات من الأصغر للأكبر لكل مباراة
-                prob_diffs = sorted_probs[:, -1] - sorted_probs[:, -2] # الفرق بين أعلى احتمالين
+                # تطبيق فلتر الفوضى الاستثماري
+                sorted_probs = np.sort(probs_test_raw, axis=1)
+                prob_diffs = sorted_probs[:, -1] - sorted_probs[:, -2] 
                 
-                # استخراج المؤشرات (Indices) للمباريات التي اجتازت الفلتر (الفرق أكبر من السلايدر)
                 valid_indices = np.where(prob_diffs >= chaos_filter)[0]
                 ignored_matches = len(y_test_raw) - len(valid_indices)
                 
@@ -290,7 +335,6 @@ with tab2:
                     st.warning("⚠️ فلتر الفوضى صارم جداً! تم استبعاد كل المباريات. قم بتقليل النسبة.")
                     st.stop()
                 
-                # تصفية المصفوفات لتشمل فقط "المباريات الآمنة"
                 y_test = y_test_raw[valid_indices]
                 probs_test = probs_test_raw[valid_indices]
                 actual_h_goals = actual_h_goals_raw[valid_indices]
@@ -299,9 +343,8 @@ with tab2:
                 pred_a_goals = pred_a_goals_raw[valid_indices]
                 
                 total_matches_filtered = len(y_test)
-                # ==========================================
 
-                # حساب المقاييس الجديدة بناءً على المباريات الآمنة فقط
+                # حساب المقاييس
                 top2_indices = np.argsort(probs_test, axis=1)[:, -2:]
                 correct_dc = sum(1 for i in range(total_matches_filtered) if y_test[i] in top2_indices[i])
                 acc_dc = (correct_dc / total_matches_filtered) * 100
