@@ -8,6 +8,7 @@ from engine.odds_fetcher import OddsFetcher
 from engine.fixtures_fetcher import FixturesFetcher
 from engine.multi_agent_board import MultiAgentBoard
 from engine.team_dictionary import TeamDictionary
+from engine.llm_expert import OracleLLM # <-- تم دمج الأوراكل هنا بنجاح
 
 # -------- ثوابت -------- #
 MATCHES_PER_SEASON = 932
@@ -141,6 +142,21 @@ with tab1:
             m2.metric("تعادل", f"{probs[1]*100:.1f}%")
             m3.metric(f"فوز {away_team}", f"{probs[0]*100:.1f}%")
             
+            # --- بداية دمج OracleLLM ---
+            st.markdown("#### 🤖 توقع النتيجة الدقيقة (Oracle LLM)")
+            try:
+                oracle = OracleLLM()
+                with st.spinner("جاري استشارة الأوراكل لقراءة النتيجة النهائية..."):
+                    exact_score = oracle.get_exact_score(home_team, away_team, h_xg, a_xg, probs)
+                    double_chance = oracle.get_double_chance(home_team, away_team, probs)
+                    
+                    c_score, c_dc = st.columns(2)
+                    c_score.info(f"🎯 **النتيجة المتوقعة:** {exact_score}")
+                    c_dc.success(f"🛡️ **الخيار الآمن:** {double_chance}")
+            except Exception as e:
+                st.warning(f"⚠️ تعذر الاتصال بخوادم Groq لتوقع النتيجة الدقيقة: {e}")
+            # --- نهاية دمج OracleLLM ---
+            
             # 3. القيمة الاستثمارية
             st.divider()
             telegram_msg = ""
@@ -240,21 +256,13 @@ with tab2:
                 y_test = test_df['result'].values
                 
                 probs_test = backtest_ml.model.predict_proba(X_test)
+                # حساب أعلى احتمالين (الفرصة المزدوجة)
                 top2_indices = np.argsort(probs_test, axis=1)[:, -2:]
                 
+                # حساب النتيجة مرة واحدة فقط بدلاً من مرتين
                 correct = sum(1 for i in range(len(y_test)) if y_test[i] in top2_indices[i])
                 accuracy = (correct / len(y_test)) * 100
                 
                 st.metric("🎯 نسبة الدقة الحقيقية (Double Chance)", f"{accuracy:.2f}%")
                 st.progress(min(accuracy / 100, 1.0))
                 st.caption(f"تم التدريب على {len(train_df)} مباراة والاختبار على {len(test_df)} مباراة")
-                y_test = test_df['result'].values
-                
-                probs_test = backtest_ml.model.predict_proba(X_test)
-                top2_indices = np.argsort(probs_test, axis=1)[:, -2:]
-                
-                correct = sum([1 for i in range(len(y_test)) if y_test[i] in top2_indices[i]])
-                accuracy = (correct / len(y_test)) * 100
-                
-                st.metric("🎯 نسبة الدقة الحقيقية (Double Chance)", f"{accuracy:.2f}%")
-                st.progress(accuracy / 100)
