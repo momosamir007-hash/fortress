@@ -8,7 +8,7 @@ from engine.odds_fetcher import OddsFetcher
 from engine.fixtures_fetcher import FixturesFetcher
 from engine.multi_agent_board import MultiAgentBoard
 from engine.team_dictionary import TeamDictionary
-from engine.llm_expert import OracleLLM #
+from engine.llm_expert import OracleLLM
 
 # -------- ثوابت -------- #
 MATCHES_PER_SEASON = 932
@@ -131,15 +131,22 @@ with tab1:
             match_x = dp.get_match_features(home_team, away_team)
             probs = ml.predict_match_probs(match_x)
             h_xg, a_xg = ml.predict_xg(match_x)
-            h2h_data = dp.get_detailed_h2h(home_team, away_team) #
             
-            # عرض إحصائيات H2H بشكل أنيق
-            st.markdown("### 📜 تاريخ المواجهات المباشرة (H2H)")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("إجمالي اللقاءات", h2h_data['total'])
-            c2.metric(f"فوز {home_team}", h2h_data['home_wins'])
-            c3.metric(f"فوز {away_team}", h2h_data['away_wins'])
-            c4.metric("تعادل", h2h_data['draws'])
+            # ملاحظة: تأكد من إضافة دالة get_detailed_h2h في ملف data_processor.py الخاص بك
+            try:
+                h2h_data = dp.get_detailed_h2h(home_team, away_team)
+                
+                # عرض إحصائيات H2H بشكل أنيق
+                st.markdown("### 📜 تاريخ المواجهات المباشرة (H2H)")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("إجمالي اللقاءات", h2h_data.get('total', 0))
+                c2.metric(f"فوز {home_team}", h2h_data.get('home_wins', 0))
+                c3.metric(f"فوز {away_team}", h2h_data.get('away_wins', 0))
+                c4.metric("تعادل", h2h_data.get('draws', 0))
+            except AttributeError:
+                h2h_data = None
+                st.warning("لم يتم العثور على دالة `get_detailed_h2h` في DataProcessor، تم تخطي عرض المواجهات المباشرة التفصيلية.")
+
             
             # 2. كوتا السوق
             odds_fetcher = OddsFetcher()
@@ -207,8 +214,10 @@ with tab1:
             try:
                 with st.spinner("جاري إدارة المناظرة بين الخبراء..."):
                     board = MultiAgentBoard(confidence_threshold=confidence_threshold)
+                    
+                    # استخدمنا h2h_data إذا كانت موجودة، وإلا أرسلنا None لتجنب الانهيار
                     s_rep, t_rep, v_rep, debate_content, manager_decision = board.run_board_meeting(
-                        home_team, away_team, h_xg, a_xg, probs, odds_data, h2h_data #
+                        home_team, away_team, h_xg, a_xg, probs, odds_data, h2h_data if h2h_data else None
                     )
                     
                     c1, c2, c3 = st.columns(3)
@@ -233,7 +242,6 @@ with tab1:
                 send_telegram_alert(tg_token, tg_chat_id, telegram_msg)
 
 # ========== التبويب الثاني (الفحص الرجعي الشامل) ========== #
-# ========== التبويب الثاني (الفحص الرجعي الشامل) ========== #
 with tab2:
     st.subheader("📊 اختبار دقة النموذج الشامل على المواسم الماضية")
     seasons_to_hide = st.slider("سنوات الاختبار (مواسم)", 1, 10, 5)
@@ -252,7 +260,6 @@ with tab2:
                 backtest_ml = FortressML()
                 backtest_ml.train(train_df)
                 
-                # تحديد أعمدة الميزات (جميع الأعمدة ما عدا الأعمدة المستهدفة)
                 # تحديد الميزات الرقمية فقط التي تفهمها الآلة
                 feature_cols = ['h_atk', 'h_def', 'h_pts', 'a_atk', 'a_def', 'a_pts', 'h2h_adv']
 
@@ -262,6 +269,7 @@ with tab2:
                     st.error(f"الأعمدة المفقودة في بيانات الاختبار: {missing_cols}")
                     st.stop()
                 
+                # أخذ الميزات الرقمية فقط للاختبار (مما يمنع خطأ ValueError)
                 X_test = test_df[feature_cols]
                 y_test = test_df['result'].values
                 actual_h_goals = test_df['h_goals'].values
