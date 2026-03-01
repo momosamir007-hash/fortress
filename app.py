@@ -254,7 +254,12 @@ with tab2:
                 backtest_ml.train(train_df)
                 
                 # 3. تجهيز بيانات الاختبار
-                feature_cols = ['h_atk', 'h_def', 'h_pts', 'a_atk', 'a_def', 'a_pts', 'h2h_adv']
+                feature_cols = [
+    'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 
+    'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 
+    'h2h_adv'
+]
+
                 X_test = test_df[feature_cols]
                 y_test = test_df['result'].values
                 actual_h_goals = test_df['h_goals'].values
