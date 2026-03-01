@@ -35,7 +35,7 @@ class DataProcessor:
 
     def extract_features(self, df):
         team_stats = {}
-        team_recent = {} # القاموس الجديد لتتبع الفورمة الأخيرة
+        team_recent = {}
         h2h_stats = {}
         features = []
         
@@ -51,12 +51,10 @@ class DataProcessor:
                 
             h2h_t1_adv = h2h_stats[pair]['t1_wins'] - h2h_stats[pair]['t2_wins'] if pair[0] == t1 else h2h_stats[pair]['t2_wins'] - h2h_stats[pair]['t1_wins']
 
-            # تهيئة الفرق في القاموس الجديد إذا لم تكن موجودة
             for t in [t1, t2]:
                 if t not in team_recent:
                     team_recent[t] = {'scored': [], 'conceded': []}
 
-            # حساب متوسط آخر 5 مباريات (إذا لم يلعب الفريق يعطى 1.0 كقيمة افتراضية)
             h_scored_5 = np.mean(team_recent[t1]['scored']) if len(team_recent[t1]['scored']) > 0 else 1.0
             h_conceded_5 = np.mean(team_recent[t1]['conceded']) if len(team_recent[t1]['conceded']) > 0 else 1.0
             
@@ -68,20 +66,19 @@ class DataProcessor:
                 'h_atk': team_stats.get(t1, {'atk': 1.0})['atk'],
                 'h_def': team_stats.get(t1, {'def': 1.0})['def'],
                 'h_pts': team_stats.get(t1, {'pts': 1.0})['pts'],
-                'h_avg_scored_5': h_scored_5,       # إضافة الميزة الجديدة
-                'h_avg_conceded_5': h_conceded_5,   # إضافة الميزة الجديدة
+                'h_avg_scored_5': h_scored_5,
+                'h_avg_conceded_5': h_conceded_5,
                 'a_atk': team_stats.get(t2, {'atk': 1.0})['atk'],
                 'a_def': team_stats.get(t2, {'def': 1.0})['def'],
                 'a_pts': team_stats.get(t2, {'pts': 1.0})['pts'],
-                'a_avg_scored_5': a_scored_5,       # إضافة الميزة الجديدة
-                'a_avg_conceded_5': a_conceded_5,   # إضافة الميزة الجديدة
+                'a_avg_scored_5': a_scored_5,
+                'a_avg_conceded_5': a_conceded_5,
                 'h2h_adv': h2h_t1_adv,
                 'result': result,
                 'h_goals': g1,  
                 'a_goals': g2   
             })
             
-            # --- تحديث الإحصائيات التراكمية (EMA) ---
             alpha = 0.3 
             for t in [t1, t2]:
                 if t not in team_stats:
@@ -101,13 +98,11 @@ class DataProcessor:
             team_stats[t2]['def'] = (alpha * g1) + ((1 - alpha) * team_stats[t2]['def'])
             team_stats[t2]['pts'] = (alpha * (3 if result==0 else 1 if result==1 else 0)) + ((1 - alpha) * team_stats[t2]['pts'])
             
-            # --- تحديث الفورمة القصيرة (آخر 5 مباريات) ---
             team_recent[t1]['scored'].append(g1)
             team_recent[t1]['conceded'].append(g2)
             team_recent[t2]['scored'].append(g2)
             team_recent[t2]['conceded'].append(g1)
             
-            # الاحتفاظ بآخر 5 مباريات فقط
             team_recent[t1]['scored'] = team_recent[t1]['scored'][-5:]
             team_recent[t1]['conceded'] = team_recent[t1]['conceded'][-5:]
             team_recent[t2]['scored'] = team_recent[t2]['scored'][-5:]
@@ -138,10 +133,8 @@ class DataProcessor:
         h2h = self.latest_h2h_stats.get(pair, {'t1_wins': 0, 't2_wins': 0, 'draws': 0})
         h2h_t1_adv = h2h['t1_wins'] - h2h['t2_wins'] if pair[0] == t1 else h2h['t2_wins'] - h2h['t1_wins']
         
-        # المصفوفة الجديدة تحتوي على 11 متغيراً بدلاً من 7
         return np.array([[
             h_stats['atk'], h_stats['def'], h_stats['pts'], h_scored_5, h_conceded_5,
             a_stats['atk'], a_stats['def'], a_stats['pts'], a_scored_5, a_conceded_5, 
             h2h_adv
         ]])
-                          a_stats['atk'], a_stats['def'], a_stats['pts'], h2h_t1_adv]])
