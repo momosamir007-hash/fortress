@@ -146,7 +146,6 @@ with tab1:
                 h2h_data = None
                 st.warning("لم يتم العثور على دالة `get_detailed_h2h` في DataProcessor، تم تخطي عرض المواجهات المباشرة التفصيلية.")
 
-            
             # 2. كوتا السوق
             odds_fetcher = OddsFetcher()
             odds_data, bookie_name = odds_fetcher.get_odds(home_team, away_team)
@@ -258,10 +257,10 @@ with tab2:
                 backtest_ml = FortressML()
                 backtest_ml.train(train_df)
                 
-                # تحديد الميزات الـ 11 بالترتيب الدقيق كما تدرب عليها النموذج في ml_model.py
+                # 🛠️ التحديث الجديد: 15 ميزة تدريب احترافية بالترتيب الدقيق لتجنب أي أعطال
                 feature_cols = [
-                    'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 
-                    'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 
+                    'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 'h_rest_days', 'h_matchweek',
+                    'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 'a_rest_days', 'a_matchweek',
                     'h2h_adv'
                 ]
 
@@ -320,4 +319,4 @@ with tab2:
                     st.metric("🔮 النتيجة الدقيقة (Exact Score)", f"{acc_exact:.2f}%")
                     st.progress(min(acc_exact / 100, 1.0))
                 
-                st.info("💡 يتم الآن حساب كافة المقاييس بناءً على الميزات المتاحة.")
+                st.info("💡 يتم الآن حساب المقاييس بناءً على 15 ميزة احترافية (تشمل الإرهاق والدوافع).")
