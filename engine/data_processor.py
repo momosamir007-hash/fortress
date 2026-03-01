@@ -136,5 +136,6 @@ class DataProcessor:
         return np.array([[
             h_stats['atk'], h_stats['def'], h_stats['pts'], h_scored_5, h_conceded_5,
             a_stats['atk'], a_stats['def'], a_stats['pts'], a_scored_5, a_conceded_5, 
-            h2h_adv
+            h2h_t1_adv
+
         ]])
