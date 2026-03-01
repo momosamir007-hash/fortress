@@ -3,14 +3,12 @@ import numpy as np
 
 class DataProcessor:
     def __init__(self):
-        # توليد كل المواسم من 1993 حتى 2026 آلياً
         self.seasons = []
         for year in range(1993, 2026):
             start_yr = str(year)[-2:].zfill(2)
             end_yr = str(year + 1)[-2:].zfill(2)
             self.seasons.append(f"{start_yr}{end_yr}")
             
-        # E0 = الدوري الإنجليزي الممتاز | E1 = الشامبيونشيب
         self.leagues = ["E0", "E1"]
         self.base_url = "https://www.football-data.co.uk/mmz4281/{}/{}.csv"
 
@@ -62,13 +60,26 @@ class DataProcessor:
                 'a_pts': team_stats.get(t2, {'pts': 1.0})['pts'],
                 'h2h_adv': h2h_t1_adv,
                 'result': result,
-                'h_goals': g1,  # حفظ أهداف الأرض
-                'a_goals': g2   # حفظ أهداف الضيف
+                'h_goals': g1,  
+                'a_goals': g2   
             })
             
             alpha = 0.3 
             for t in [t1, t2]:
-                if t not in team_stats: team_stats[t] = {'atk': 1.0, 'def': 1.0, 'pts': 1.0}
+                if t not in team_stats:
+                    # معالجة منطقية للفرق الجديدة (التقييم الديناميكي)
+                    if len(team_stats) == 0:
+                        team_stats[t] = {'atk': 1.0, 'def': 1.0, 'pts': 1.0}
+                    else:
+                        avg_atk = sum(s['atk'] for s in team_stats.values()) / len(team_stats)
+                        avg_def = sum(s['def'] for s in team_stats.values()) / len(team_stats)
+                        avg_pts = sum(s['pts'] for s in team_stats.values()) / len(team_stats)
+                        
+                        team_stats[t] = {
+                            'atk': avg_atk * 0.8, 
+                            'def': avg_def * 0.8, 
+                            'pts': avg_pts * 0.8
+                        }
                 
             team_stats[t1]['atk'] = (alpha * g1) + ((1 - alpha) * team_stats[t1]['atk'])
             team_stats[t1]['def'] = (alpha * g2) + ((1 - alpha) * team_stats[t1]['def'])
