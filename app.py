@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import time
 import requests
-from scipy.stats import poisson  # 💡 إضافة مكتبة التوزيع الاحتمالي
+from scipy.stats import poisson  # 💡 مكتبة التوزيع الاحتمالي للأهداف
 from engine.data_processor import DataProcessor
 from engine.ml_model import FortressML
 from engine.odds_fetcher import OddsFetcher
@@ -146,10 +146,35 @@ with tab1:
         with col2:
             away_team = st.selectbox("الفريق الضيف (Away)", teams, index=teams.index("Chelsea") if "Chelsea" in teams else 1)
 
+    # 💡 التحديث الجديد: القائمة المنسدلة الذكية للكوتا
+    st.markdown("---")
+    st.markdown("#### ⚙️ ربط كوتا السوق (تجاوز اختلافات الأسماء)")
+    
+    @st.cache_data(ttl=10800) # حفظ القائمة لمدة 3 ساعات لتوفير باقة الـ API
+    def fetch_odds_dropdown():
+        return OddsFetcher().get_available_matches()
+        
+    available_odds_matches = fetch_odds_dropdown()
+    
+    if available_odds_matches:
+        st.info("💡 اختر المباراة المطابقة من سوق المراهنات لضمان جلب الكوتا بدقة دون أخطاء نصية.")
+        options = ["التطابق التلقائي (الافتراضي)"] + available_odds_matches
+        selected_odds_match = st.selectbox("مباريات سوق المراهنات المتاحة حالياً:", options)
+        
+        if selected_odds_match != "التطابق التلقائي (الافتراضي)":
+            manual_odds_home = selected_odds_match.split(" vs ")[0]
+            manual_odds_away = selected_odds_match.split(" vs ")[1]
+        else:
+            manual_odds_home, manual_odds_away = home_team, away_team
+    else:
+        st.warning("⚠️ لم نتمكن من جلب قائمة المباريات من سوق المراهنات (قد تكون الباقة انتهت أو لا توجد مباريات).")
+        manual_odds_home, manual_odds_away = home_team, away_team
+
     if st.button("🚀 بدء المناظرة وتحليل المواجهة", use_container_width=True):
         if home_team == away_team:
             st.warning("الرجاء اختيار فريقين مختلفين!")
         else:
+            # 1. المحرك الرياضي والمواجهات المباشرة
             match_x = dp.get_match_features(home_team, away_team)
             probs = ml.predict_match_probs(match_x)
             h_xg, a_xg = ml.predict_xg(match_x)
@@ -166,8 +191,9 @@ with tab1:
                 h2h_data = None
                 st.warning("لم يتم العثور على دالة المواجهات المباشرة، تم التخطي.")
 
+            # 2. كوتا السوق باستخدام الأسماء المحددة
             odds_fetcher = OddsFetcher()
-            odds_data, bookie_name = odds_fetcher.get_odds(home_team, away_team)
+            odds_data, bookie_name = odds_fetcher.get_odds(manual_odds_home, manual_odds_away)
             
             st.markdown("#### 📊 القراءة الرقمية (XGBoost)")
             m1, m2, m3 = st.columns(3)
@@ -205,6 +231,7 @@ with tab1:
                     
                 col.metric(f"خط الأهداف {line}", rec)
 
+            # --- دمج OracleLLM ---
             st.markdown("#### 🤖 الرؤية التكتيكية (Oracle LLM)")
             try:
                 oracle = OracleLLM()
@@ -214,9 +241,7 @@ with tab1:
             except Exception as e:
                 st.warning(f"⚠️ تعذر الاتصال بخوادم Groq: {e}")
             
-            # ==========================================
-            # القيمة الاستثمارية والمناظرة
-            # ==========================================
+            # --- القيمة الاستثمارية ---
             st.divider()
             telegram_msg = ""
             
@@ -247,8 +272,9 @@ with tab1:
                 else:
                     st.info("لا توجد قيمة استثمارية واضحة في هذه المباراة.")
             else:
-                st.warning("⚠️ لم نتمكن من جلب كوتا السوق لهذه المباراة.")
+                st.warning(f"⚠️ {bookie_name}")
                 
+            # --- المناظرة ---
             st.divider()
             st.subheader("🏛️ اجتماع مجلس الخبراء (Live AI Debate)")
             try:
