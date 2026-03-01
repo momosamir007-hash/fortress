@@ -261,7 +261,13 @@ with tab2:
                 backtest_ml.train(train_df)
                 
                 # تحديد الميزات الرقمية فقط التي تفهمها الآلة
-                feature_cols = ['h_atk', 'h_def', 'h_pts', 'a_atk', 'a_def', 'a_pts', 'h2h_adv']
+                # التعديل المطلوب في app.py (التبويب الثاني)
+                feature_cols = [
+                        'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 
+                        'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 
+                           'h2h_adv'
+                               ]
+
 
                 # التحقق من وجود جميع الأعمدة في test_df
                 missing_cols = set(feature_cols) - set(test_df.columns)
