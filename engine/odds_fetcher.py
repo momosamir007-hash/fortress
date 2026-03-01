@@ -10,7 +10,7 @@ class OddsFetcher:
         except Exception:
             self.api_key = os.getenv("ODDS_API_KEY")
 
-        def _is_match(self, name1, name2):
+    def _is_match(self, name1, name2):
         n1 = name1.lower().replace(" fc", "").strip()
         n2 = name2.lower().replace(" fc", "").strip()
         
@@ -47,7 +47,6 @@ class OddsFetcher:
             return True
             
         return False
-
 
     def get_odds(self, home_team, away_team):
         if not self.api_key or self.api_key == "ضع_مفتاح_the_odds_هنا":
