@@ -270,7 +270,7 @@ with tab2:
                     st.stop()
                 
                 # أخذ الميزات الرقمية فقط للاختبار (مما يمنع خطأ ValueError)
-                X_test = test_df[feature_cols]
+                X_test = test_df[feature_cols].values
                 y_test = test_df['result'].values
                 actual_h_goals = test_df['h_goals'].values
                 actual_a_goals = test_df['a_goals'].values
