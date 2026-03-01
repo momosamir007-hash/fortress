@@ -8,7 +8,7 @@ from engine.odds_fetcher import OddsFetcher
 from engine.fixtures_fetcher import FixturesFetcher
 from engine.multi_agent_board import MultiAgentBoard
 from engine.team_dictionary import TeamDictionary
-from engine.llm_expert import OracleLLM # <-- تم دمج الأوراكل هنا بنجاح
+from engine.llm_expert import OracleLLM #
 
 # -------- ثوابت -------- #
 MATCHES_PER_SEASON = 932
@@ -127,10 +127,19 @@ with tab1:
         if home_team == away_team:
             st.warning("الرجاء اختيار فريقين مختلفين!")
         else:
-            # 1. المحرك الرياضي
+            # 1. المحرك الرياضي والمواجهات المباشرة
             match_x = dp.get_match_features(home_team, away_team)
             probs = ml.predict_match_probs(match_x)
             h_xg, a_xg = ml.predict_xg(match_x)
+            h2h_data = dp.get_detailed_h2h(home_team, away_team) #
+            
+            # عرض إحصائيات H2H بشكل أنيق
+            st.markdown("### 📜 تاريخ المواجهات المباشرة (H2H)")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("إجمالي اللقاءات", h2h_data['total'])
+            c2.metric(f"فوز {home_team}", h2h_data['home_wins'])
+            c3.metric(f"فوز {away_team}", h2h_data['away_wins'])
+            c4.metric("تعادل", h2h_data['draws'])
             
             # 2. كوتا السوق
             odds_fetcher = OddsFetcher()
@@ -142,7 +151,7 @@ with tab1:
             m2.metric("تعادل", f"{probs[1]*100:.1f}%")
             m3.metric(f"فوز {away_team}", f"{probs[0]*100:.1f}%")
             
-            # --- بداية دمج OracleLLM ---
+            # --- دمج OracleLLM لتوقع النتيجة الدقيقة ---
             st.markdown("#### 🤖 توقع النتيجة الدقيقة (Oracle LLM)")
             try:
                 oracle = OracleLLM()
@@ -155,7 +164,6 @@ with tab1:
                     c_dc.success(f"🛡️ **الخيار الآمن:** {double_chance}")
             except Exception as e:
                 st.warning(f"⚠️ تعذر الاتصال بخوادم Groq لتوقع النتيجة الدقيقة: {e}")
-            # --- نهاية دمج OracleLLM ---
             
             # 3. القيمة الاستثمارية
             st.divider()
@@ -163,7 +171,6 @@ with tab1:
             
             if odds_data:
                 st.caption(f"📌 مصدر الكوتا: **{bookie_name}**")
-                
                 ev_home = (probs[2] * odds_data['home']) - 1
                 ev_draw = (probs[1] * odds_data['draw']) - 1
                 ev_away = (probs[0] * odds_data['away']) - 1
@@ -197,12 +204,11 @@ with tab1:
             # 4. المناظرة
             st.divider()
             st.subheader("🏛️ اجتماع مجلس الخبراء (Live AI Debate)")
-            
             try:
-                with st.spinner("جاري إدارة المناظرة بين الخبراء عبر Cerebras..."):
+                with st.spinner("جاري إدارة المناظرة بين الخبراء..."):
                     board = MultiAgentBoard(confidence_threshold=confidence_threshold)
                     s_rep, t_rep, v_rep, debate_content, manager_decision = board.run_board_meeting(
-                        home_team, away_team, h_xg, a_xg, probs, odds_data
+                        home_team, away_team, h_xg, a_xg, probs, odds_data, h2h_data #
                     )
                     
                     c1, c2, c3 = st.columns(3)
@@ -216,23 +222,17 @@ with tab1:
                         st.success("**💰 المالي:**")
                         st.markdown(f"<div class='rtl-text'>{v_rep}</div>", unsafe_allow_html=True)
                         
-                    with st.expander("📺 شاهد تفاصيل المناظرة المباشرة بين الخبراء"):
-                        st.markdown(f"<div class='rtl-text'>{debate_content}</div>", unsafe_allow_html=True)
-                        
                     st.divider()
                     st.markdown("### 👑 القرار النهائي للمدير (خلاصة المناظرة)")
                     st.error(f"**{manager_decision}**")
-                    
             except Exception as e:
                 st.error(f"⚠️ فشل الاتصال بخوادم الذكاء الاصطناعي: {e}")
-                manager_decision = "يُرجع للنتائج الرقمية فقط"
                 
-            # إرسال تليجرام
             if telegram_msg and tg_token and tg_chat_id:
                 telegram_msg += f"👑 **قرار المدير النهائي:**\n{manager_decision}"
                 send_telegram_alert(tg_token, tg_chat_id, telegram_msg)
 
-# ========== التبويب الثاني ========== #
+# ========== التبويب الثاني (الفحص الرجعي الشامل) ========== #
 with tab2:
     st.subheader("📊 اختبار دقة النموذج الشامل على المواسم الماضية")
     seasons_to_hide = st.slider("سنوات الاختبار (مواسم)", 1, 10, 5)
@@ -244,35 +244,29 @@ with tab2:
             st.error(f"بيانات غير كافية. المتاح: {len(features_df)} مباراة، المطلوب: {matches_to_hide}")
         else:
             with st.spinner("جاري طحن البيانات واختبار الخوارزميات..."):
-                # 1. تقسيم البيانات للتدريب والاختبار
                 split_idx = len(features_df) - matches_to_hide
                 train_df = features_df.iloc[:split_idx]
                 test_df = features_df.iloc[split_idx:]
                 
-                # 2. تدريب النموذج
                 backtest_ml = FortressML()
                 backtest_ml.train(train_df)
                 
-                # 3. تجهيز بيانات الاختبار
+                # قائمة المتغيرات الـ 11 المحدثة
                 feature_cols = [
-    'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 
-    'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 
-    'h2h_adv'
-]
+                    'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 
+                    'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 
+                    'h2h_t1_adv'
+                ]
 
                 X_test = test_df[feature_cols]
                 y_test = test_df['result'].values
                 actual_h_goals = test_df['h_goals'].values
                 actual_a_goals = test_df['a_goals'].values
                 
-                # 4. التنبؤات (Predictions)
                 probs_test = backtest_ml.model.predict_proba(X_test)
-                
-                # توقعات الأهداف (نمنع القيم السالبة بالـ clip ونقرب لأقرب رقم صحيح بالـ round)
                 pred_h_goals = np.round(np.clip(backtest_ml.model_reg_h.predict(X_test), 0, None))
                 pred_a_goals = np.round(np.clip(backtest_ml.model_reg_a.predict(X_test), 0, None))
                 
-                # 5. الحسابات
                 total_matches = len(y_test)
                 
                 # أ. الفرصة المزدوجة
@@ -280,41 +274,36 @@ with tab2:
                 correct_dc = sum(1 for i in range(total_matches) if y_test[i] in top2_indices[i])
                 acc_dc = (correct_dc / total_matches) * 100
                 
-                # ب. الربح المباشر (أعلى احتمال)
+                # ب. الربح المباشر (1X2)
                 top1_indices = np.argmax(probs_test, axis=1)
                 correct_direct = np.sum(y_test == top1_indices)
                 acc_direct = (correct_direct / total_matches) * 100
                 
-                # ج. النتيجة الدقيقة (Exact Score)
+                # ج. النتيجة الدقيقة
                 correct_exact = np.sum((pred_h_goals == actual_h_goals) & (pred_a_goals == actual_a_goals))
                 acc_exact = (correct_exact / total_matches) * 100
                 
-                # د. عدد الأهداف (أكثر/أقل من 2.5 هدف)
+                # د. أهداف (Over/Under 2.5)
                 pred_total = pred_h_goals + pred_a_goals
                 actual_total = actual_h_goals + actual_a_goals
                 correct_ou25 = np.sum((pred_total > 2.5) == (actual_total > 2.5))
                 acc_ou25 = (correct_ou25 / total_matches) * 100
                 
-                # 6. عرض النتائج بواجهة أنيقة
                 st.success(f"✅ تم التدريب على **{len(train_df)}** مباراة، واختبار الآلة على **{total_matches}** مباراة حقيقية.")
                 
                 col1, col2 = st.columns(2)
                 col3, col4 = st.columns(2)
-                
                 with col1:
                     st.metric("🛡️ الفرصة المزدوجة (Double Chance)", f"{acc_dc:.2f}%")
                     st.progress(min(acc_dc / 100, 1.0))
-                
                 with col2:
                     st.metric("🎯 الربح المباشر (Match Winner)", f"{acc_direct:.2f}%")
                     st.progress(min(acc_direct / 100, 1.0))
-                    
                 with col3:
                     st.metric("⚽ الأهداف (Over/Under 2.5)", f"{acc_ou25:.2f}%")
                     st.progress(min(acc_ou25 / 100, 1.0))
-                    
                 with col4:
                     st.metric("🔮 النتيجة الدقيقة (Exact Score)", f"{acc_exact:.2f}%")
                     st.progress(min(acc_exact / 100, 1.0))
-                    
-                st.info("💡 **ملاحظة للمستثمر:** توقع 'النتيجة الدقيقة' هو الأصعب رياضياً في عالم كرة القدم. تحقيق نسبة بين (10% إلى 15%) في النتيجة الدقيقة يعتبر إنجازاً ضخماً للذكاء الاصطناعي يتفوق على كبار المحللين.")
+                
+                st.info("💡 يتم الآن حساب كافة المقاييس بناءً على المتغيرات الـ 11 الجديدة لضمان أقصى دقة ممكنة.")
