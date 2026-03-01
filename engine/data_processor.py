@@ -3,12 +3,14 @@ import numpy as np
 
 class DataProcessor:
     def __init__(self):
+        # توليد كل المواسم من 1993 حتى 2026 آلياً
         self.seasons = []
         for year in range(1993, 2026):
             start_yr = str(year)[-2:].zfill(2)
             end_yr = str(year + 1)[-2:].zfill(2)
             self.seasons.append(f"{start_yr}{end_yr}")
             
+        # E0 = الدوري الإنجليزي الممتاز | E1 = الشامبيونشيب
         self.leagues = ["E0", "E1"]
         self.base_url = "https://www.football-data.co.uk/mmz4281/{}/{}.csv"
 
@@ -45,6 +47,7 @@ class DataProcessor:
             
             result = 2 if g1 > g2 else (1 if g1 == g2 else 0)
             
+            # ترتيب اسمي الفريقين أبجدياً لضمان توحيد مفتاح المواجهات المباشرة
             pair = tuple(sorted([t1, t2]))
             if pair not in h2h_stats:
                 h2h_stats[pair] = {'t1_wins': 0, 't2_wins': 0, 'draws': 0}
@@ -118,6 +121,7 @@ class DataProcessor:
         return pd.DataFrame(features)
 
     def get_match_features(self, t1, t2):
+        """تجهيز المصفوفة الرقمية للآلة (XGBoost)"""
         h_stats = self.latest_team_stats.get(t1, {'atk': 1.0, 'def': 1.0, 'pts': 1.0})
         a_stats = self.latest_team_stats.get(t2, {'atk': 1.0, 'def': 1.0, 'pts': 1.0})
         
@@ -136,6 +140,36 @@ class DataProcessor:
         return np.array([[
             h_stats['atk'], h_stats['def'], h_stats['pts'], h_scored_5, h_conceded_5,
             a_stats['atk'], a_stats['def'], a_stats['pts'], a_scored_5, a_conceded_5, 
-            h2h_t1_adv
-
+            h2h_t1_adv 
         ]])
+
+    def get_detailed_h2h(self, home_team, away_team):
+        """
+        دالة جديدة متطورة لاستخراج تفاصيل المواجهات المباشرة بين فريقين
+        لإرسالها إلى الخبير التكتيكي (LLM) ليفهم العقدة النفسية.
+        """
+        pair = tuple(sorted([home_team, away_team]))
+        
+        # إذا لم يسبق لهما اللعب معاً
+        if pair not in self.latest_h2h_stats:
+            return {'home_wins': 0, 'away_wins': 0, 'draws': 0, 'total': 0}
+            
+        stats = self.latest_h2h_stats[pair]
+        
+        # استخراج النتائج بناءً على من هو الأرض ومن هو الضيف الفعلي في الجولة القادمة
+        if pair[0] == home_team:
+            h_wins = stats['t1_wins']
+            a_wins = stats['t2_wins']
+        else:
+            h_wins = stats['t2_wins']
+            a_wins = stats['t1_wins']
+            
+        draws = stats['draws']
+        total = h_wins + a_wins + draws
+        
+        return {
+            'home_wins': h_wins,
+            'away_wins': a_wins,
+            'draws': draws,
+            'total': total
+        }
