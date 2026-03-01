@@ -127,15 +127,12 @@ with tab1:
         if home_team == away_team:
             st.warning("الرجاء اختيار فريقين مختلفين!")
         else:
-            # 1. المحرك الرياضي والمواجهات المباشرة
             match_x = dp.get_match_features(home_team, away_team)
             probs = ml.predict_match_probs(match_x)
             h_xg, a_xg = ml.predict_xg(match_x)
             
             try:
                 h2h_data = dp.get_detailed_h2h(home_team, away_team)
-                
-                # عرض إحصائيات H2H بشكل أنيق
                 st.markdown("### 📜 تاريخ المواجهات المباشرة (H2H)")
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("إجمالي اللقاءات", h2h_data.get('total', 0))
@@ -144,9 +141,8 @@ with tab1:
                 c4.metric("تعادل", h2h_data.get('draws', 0))
             except AttributeError:
                 h2h_data = None
-                st.warning("لم يتم العثور على دالة `get_detailed_h2h` في DataProcessor، تم تخطي عرض المواجهات المباشرة التفصيلية.")
+                st.warning("لم يتم العثور على دالة المواجهات المباشرة، تم التخطي.")
 
-            # 2. كوتا السوق
             odds_fetcher = OddsFetcher()
             odds_data, bookie_name = odds_fetcher.get_odds(home_team, away_team)
             
@@ -156,7 +152,7 @@ with tab1:
             m2.metric("تعادل", f"{probs[1]*100:.1f}%")
             m3.metric(f"فوز {away_team}", f"{probs[0]*100:.1f}%")
             
-            # --- دمج OracleLLM لتوقع النتيجة الدقيقة ---
+            # --- دمج OracleLLM ---
             st.markdown("#### 🤖 توقع النتيجة الدقيقة (Oracle LLM)")
             try:
                 oracle = OracleLLM()
@@ -168,9 +164,9 @@ with tab1:
                     c_score.info(f"🎯 **النتيجة المتوقعة:** {exact_score}")
                     c_dc.success(f"🛡️ **الخيار الآمن:** {double_chance}")
             except Exception as e:
-                st.warning(f"⚠️ تعذر الاتصال بخوادم Groq لتوقع النتيجة الدقيقة: {e}")
+                st.warning(f"⚠️ تعذر الاتصال بخوادم Groq: {e}")
             
-            # 3. القيمة الاستثمارية
+            # --- القيمة الاستثمارية ---
             st.divider()
             telegram_msg = ""
             
@@ -195,24 +191,20 @@ with tab1:
                         invest_text = (f"💰 **قيمة استثمارية مكتشفة:** رهان على **{bt}** " 
                                        f"بكوتا ({ov}). العائد المتوقع: +{best_ev*100:.1f}%")
                         st.success(invest_text)
-                        telegram_msg = (f"🚨 **تنبيه استثماري جديد** 🚨\n" 
-                                        f"المباراة: {home_team} 🆚 {away_team}\n\n" 
-                                        f"{invest_text}\n\n")
+                        telegram_msg = (f"🚨 **تنبيه استثماري جديد** 🚨\nالمباراة: {home_team} 🆚 {away_team}\n\n{invest_text}\n\n")
                     else:
-                        st.warning(f"🛡️ **تم حجب مخاطرة:** فرصة ({bt}) جيدة مالياً " 
-                                   f"ولكنها ضعيفة إحصائياً ({mp*100:.1f}%).")
+                        st.warning(f"🛡️ **تم حجب مخاطرة:** فرصة ({bt}) جيدة مالياً ولكنها ضعيفة إحصائياً ({mp*100:.1f}%).")
                 else:
                     st.info("لا توجد قيمة استثمارية واضحة في هذه المباراة.")
             else:
                 st.warning("⚠️ لم نتمكن من جلب كوتا السوق لهذه المباراة.")
                 
-            # 4. المناظرة
+            # --- المناظرة ---
             st.divider()
             st.subheader("🏛️ اجتماع مجلس الخبراء (Live AI Debate)")
             try:
                 with st.spinner("جاري إدارة المناظرة بين الخبراء..."):
                     board = MultiAgentBoard(confidence_threshold=confidence_threshold)
-                    
                     s_rep, t_rep, v_rep, debate_content, manager_decision = board.run_board_meeting(
                         home_team, away_team, h_xg, a_xg, probs, odds_data, h2h_data if h2h_data else None
                     )
@@ -240,8 +232,15 @@ with tab1:
 
 # ========== التبويب الثاني (الفحص الرجعي الشامل) ========== #
 with tab2:
-    st.subheader("📊 اختبار دقة النموذج الشامل على المواسم الماضية")
-    seasons_to_hide = st.slider("سنوات الاختبار (مواسم)", 1, 10, 5)
+    st.subheader("📊 اختبار دقة النموذج الشامل (مع فلتر الفوضى الاستثماري)")
+    
+    # 💡 التحديث الجديد: إضافة سلايدر للتحكم في الفلتر الاستثماري
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        seasons_to_hide = st.slider("سنوات الاختبار (مواسم)", 1, 10, 5)
+    with col_s2:
+        chaos_filter_pct = st.slider("فلتر الفوضى (تجاهل المباريات التي فرق الثقة فيها أقل من %)", 0, 40, 15)
+        chaos_filter = chaos_filter_pct / 100.0
     
     if st.button("⚙️ بدء الفحص الرجعي الشامل", type="primary", use_container_width=True):
         matches_to_hide = seasons_to_hide * MATCHES_PER_SEASON
@@ -249,7 +248,7 @@ with tab2:
         if matches_to_hide >= len(features_df):
             st.error(f"بيانات غير كافية. المتاح: {len(features_df)} مباراة، المطلوب: {matches_to_hide}")
         else:
-            with st.spinner("جاري طحن البيانات واختبار الخوارزميات..."):
+            with st.spinner("جاري طحن البيانات وفلترة المباريات الفوضوية..."):
                 split_idx = len(features_df) - matches_to_hide
                 train_df = features_df.iloc[:split_idx]
                 test_df = features_df.iloc[split_idx:]
@@ -257,60 +256,78 @@ with tab2:
                 backtest_ml = FortressML()
                 backtest_ml.train(train_df)
                 
-                # 🛠️ التحديث الجديد: 15 ميزة تدريب احترافية بالترتيب الدقيق لتجنب أي أعطال
                 feature_cols = [
                     'h_atk', 'h_def', 'h_pts', 'h_avg_scored_5', 'h_avg_conceded_5', 'h_rest_days', 'h_matchweek',
                     'a_atk', 'a_def', 'a_pts', 'a_avg_scored_5', 'a_avg_conceded_5', 'a_rest_days', 'a_matchweek',
                     'h2h_adv'
                 ]
 
-                # التحقق من وجود جميع الأعمدة في test_df
                 missing_cols = set(feature_cols) - set(test_df.columns)
                 if missing_cols:
                     st.error(f"الأعمدة المفقودة في بيانات الاختبار: {missing_cols}")
                     st.stop()
                 
-                # أخذ الميزات الرقمية الصحيحة للاختبار
-                X_test = test_df[feature_cols]
-                y_test = test_df['result'].values
-                actual_h_goals = test_df['h_goals'].values
-                actual_a_goals = test_df['a_goals'].values
+                X_test = test_df[feature_cols].values
+                y_test_raw = test_df['result'].values
+                actual_h_goals_raw = test_df['h_goals'].values
+                actual_a_goals_raw = test_df['a_goals'].values
                 
-                probs_test = backtest_ml.model.predict_proba(X_test)
-                pred_h_goals = np.round(np.clip(backtest_ml.model_reg_h.predict(X_test), 0, None))
-                pred_a_goals = np.round(np.clip(backtest_ml.model_reg_a.predict(X_test), 0, None))
+                probs_test_raw = backtest_ml.model.predict_proba(X_test)
+                pred_h_goals_raw = np.round(np.clip(backtest_ml.model_reg_h.predict(X_test), 0, None))
+                pred_a_goals_raw = np.round(np.clip(backtest_ml.model_reg_a.predict(X_test), 0, None))
                 
-                total_matches = len(y_test)
+                # ==========================================
+                # 🚀 تطبيق فلتر الفوضى الاستثماري
+                # ==========================================
+                sorted_probs = np.sort(probs_test_raw, axis=1) # ترتيب الاحتمالات من الأصغر للأكبر لكل مباراة
+                prob_diffs = sorted_probs[:, -1] - sorted_probs[:, -2] # الفرق بين أعلى احتمالين
                 
-                # أ. الفرصة المزدوجة
+                # استخراج المؤشرات (Indices) للمباريات التي اجتازت الفلتر (الفرق أكبر من السلايدر)
+                valid_indices = np.where(prob_diffs >= chaos_filter)[0]
+                ignored_matches = len(y_test_raw) - len(valid_indices)
+                
+                if len(valid_indices) == 0:
+                    st.warning("⚠️ فلتر الفوضى صارم جداً! تم استبعاد كل المباريات. قم بتقليل النسبة.")
+                    st.stop()
+                
+                # تصفية المصفوفات لتشمل فقط "المباريات الآمنة"
+                y_test = y_test_raw[valid_indices]
+                probs_test = probs_test_raw[valid_indices]
+                actual_h_goals = actual_h_goals_raw[valid_indices]
+                actual_a_goals = actual_a_goals_raw[valid_indices]
+                pred_h_goals = pred_h_goals_raw[valid_indices]
+                pred_a_goals = pred_a_goals_raw[valid_indices]
+                
+                total_matches_filtered = len(y_test)
+                # ==========================================
+
+                # حساب المقاييس الجديدة بناءً على المباريات الآمنة فقط
                 top2_indices = np.argsort(probs_test, axis=1)[:, -2:]
-                correct_dc = sum(1 for i in range(total_matches) if y_test[i] in top2_indices[i])
-                acc_dc = (correct_dc / total_matches) * 100
+                correct_dc = sum(1 for i in range(total_matches_filtered) if y_test[i] in top2_indices[i])
+                acc_dc = (correct_dc / total_matches_filtered) * 100
                 
-                # ب. الربح المباشر (1X2)
                 top1_indices = np.argmax(probs_test, axis=1)
                 correct_direct = np.sum(y_test == top1_indices)
-                acc_direct = (correct_direct / total_matches) * 100
+                acc_direct = (correct_direct / total_matches_filtered) * 100
                 
-                # ج. النتيجة الدقيقة
                 correct_exact = np.sum((pred_h_goals == actual_h_goals) & (pred_a_goals == actual_a_goals))
-                acc_exact = (correct_exact / total_matches) * 100
+                acc_exact = (correct_exact / total_matches_filtered) * 100
                 
-                # د. أهداف (Over/Under 2.5)
                 pred_total = pred_h_goals + pred_a_goals
                 actual_total = actual_h_goals + actual_a_goals
                 correct_ou25 = np.sum((pred_total > 2.5) == (actual_total > 2.5))
-                acc_ou25 = (correct_ou25 / total_matches) * 100
+                acc_ou25 = (correct_ou25 / total_matches_filtered) * 100
                 
-                st.success(f"✅ تم التدريب على **{len(train_df)}** مباراة، واختبار الآلة على **{total_matches}** مباراة حقيقية.")
+                st.success(f"✅ تم التدريب على **{len(train_df)}** مباراة سابقة.")
+                st.warning(f"🛡️ **نتيجة فلتر الفوضى:** تم تجاهل **{ignored_matches}** مباراة خطيرة، واعتماد **{total_matches_filtered}** مباراة استثمارية آمنة.")
                 
                 col1, col2 = st.columns(2)
                 col3, col4 = st.columns(2)
                 with col1:
-                    st.metric("🛡️ الفرصة المزدوجة (Double Chance)", f"{acc_dc:.2f}%")
+                    st.metric("🛡️ الفرصة المزدوجة (للمباريات الآمنة)", f"{acc_dc:.2f}%")
                     st.progress(min(acc_dc / 100, 1.0))
                 with col2:
-                    st.metric("🎯 الربح المباشر (Match Winner)", f"{acc_direct:.2f}%")
+                    st.metric("🎯 الربح المباشر (للمباريات الآمنة)", f"{acc_direct:.2f}%")
                     st.progress(min(acc_direct / 100, 1.0))
                 with col3:
                     st.metric("⚽ الأهداف (Over/Under 2.5)", f"{acc_ou25:.2f}%")
@@ -319,4 +336,4 @@ with tab2:
                     st.metric("🔮 النتيجة الدقيقة (Exact Score)", f"{acc_exact:.2f}%")
                     st.progress(min(acc_exact / 100, 1.0))
                 
-                st.info("💡 يتم الآن حساب المقاييس بناءً على 15 ميزة احترافية (تشمل الإرهاق والدوافع).")
+                st.info("💡 جرب تغيير (سلايدر فلتر الفوضى) ولاحظ كيف ترتفع دقة الفرصة المزدوجة كلما أصبحت الآلة أكثر انتقائية!")
