@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os # لإضافة التخزين المؤقت لاحقاً إن أردنا
 
 class DataProcessor:
     def __init__(self):
@@ -178,7 +179,7 @@ class DataProcessor:
         h2h = self.latest_h2h_stats.get(pair, {'t1_wins': 0, 't2_wins': 0, 'draws': 0})
         h2h_t1_adv = h2h['t1_wins'] - h2h['t2_wins'] if pair[0] == t1 else h2h['t2_wins'] - h2h['t1_wins']
         
-        # ⚠️ تنبيه: المصفوفة الآن تتكون من 15 ميزة
+        # ✅ تم التصحيح هنا: تغيير h2h_adv إلى h2h_t1_adv
         return np.array([[
             h_stats['atk'], h_stats['def'], h_stats['pts'], h_scored_5, h_conceded_5, h_rest_days, h_matchweek,
             a_stats['atk'], a_stats['def'], a_stats['pts'], a_scored_5, a_conceded_5, a_rest_days, a_matchweek,
